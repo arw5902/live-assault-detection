@@ -1,0 +1,198 @@
+# Quick Start Guide
+
+Get up and running with the Pre-contact Detection System in 5 minutes.
+
+## Prerequisites
+
+- Python 3.8 or higher
+- 4GB RAM minimum
+- Webcam or video files for testing
+
+## Installation (3 steps)
+
+### 1. Install Dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+### 2. Download YOLOv8-Pose Model
+
+```bash
+mkdir -p models
+wget https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8m-pose.pt -O models/yolov8m-pose.pt
+```
+
+Or download manually from: https://github.com/ultralytics/assets/releases
+
+### 3. Verify Installation
+
+```bash
+python -c "from src.model import HazardGRU; print('✓ Installation successful!')"
+```
+
+## Usage Examples
+
+### Inference on Video
+
+```bash
+python -m src.infer path/to/video.mp4
+```
+
+**Output:**
+```
+Using detection threshold: 0.50 (optimized from training)
+t=0.50s hazard=0.123 level=NONE dbg={...}
+t=0.60s hazard=0.234 level=NONE dbg={...}
+t=0.70s hazard=0.678 level=PRE-CONTACT dbg={...}
+t=0.80s hazard=0.823 level=HIGH dbg={...}
+t=0.90s hazard=0.912 level=CRITICAL dbg={...}
+```
+
+### Training (if you have data)
+
+```bash
+# 1. Prepare data in this structure:
+# data/
+#   safe/
+#     s1.mp4
+#     s2.mp4
+#   attack/
+#     a1.mp4
+#     a2.mp4
+
+# 2. Run training
+python -m src.train
+
+# Output: outputs/checkpoints/hazard_gru.pt
+```
+
+### Evaluation (if you have holdout data)
+
+```bash
+# 1. Prepare holdout data:
+# holdout/
+#   labels.json
+#   safe/
+#     s1.mp4
+#   attack/
+#     h1.mp4
+
+# 2. Run evaluation
+python -m src.evaluate holdout/
+
+# Output: Detailed performance metrics
+```
+
+## Data Format
+
+### Training Data
+
+**Attack videos MUST be trimmed:**
+- Start frame: Onset (wind-up begins)
+- End frame: Contact occurs
+- Every frame contains attack behavior
+
+**Safe videos:**
+- Normal behavior only
+- No attack or aggressive movement
+
+### Holdout Data
+
+**labels.json format:**
+```json
+{
+  "h1.mp4": {
+    "category": "attack",
+    "onset_frame": 126,
+    "attack_frame": 150
+  },
+  "s1.mp4": {
+    "category": "safe"
+  }
+}
+```
+
+## Configuration
+
+Edit `src/config.py` to customize:
+
+```python
+# Quick tweaks
+window_len = 5              # Temporal window (frames)
+focal_gamma = 3.0           # Focus on hard examples
+focal_alpha = 0.75          # Prioritize attack detection
+early_thresh = 0.50         # PRE-CONTACT threshold
+high_thresh = 0.60          # HIGH threshold
+critical_thresh = 0.80      # CRITICAL threshold
+```
+
+## Common Issues
+
+### "Cannot open video"
+- Check codec: Use H.264/MP4
+- Verify path is correct
+- Ensure OpenCV installed with video support
+
+### "No module named 'ultralytics'"
+```bash
+pip install ultralytics
+```
+
+### "CUDA not available" (optional)
+```bash
+# For GPU support, install PyTorch with CUDA:
+pip install torch --index-url https://download.pytorch.org/whl/cu118
+```
+
+### Low detection rate
+- Check video quality (need clear person)
+- Verify lighting (avoid darkness)
+- Ensure person visible and reasonably sized
+
+## Performance Tips
+
+### Faster Inference
+```python
+# In config.py or runtime:
+# Use smaller model (if available)
+# Reduce processing resolution
+# Increase frame_stride (process every 4th frame instead of 3rd)
+```
+
+### Better Accuracy
+```python
+# Collect more training data
+# Increase window_len to 8-10 frames
+# Lower threshold for more sensitivity
+# Add more diverse attack scenarios
+```
+
+## Next Steps
+
+1. **Read the full [README.md](README.md)** for detailed usage
+2. **Check [DESIGN.md](docs/DESIGN.md)** for architecture details
+3. **See [CONTRIBUTING.md](CONTRIBUTING.md)** to contribute
+4. **Experiment** with your own data!
+
+## Quick Commands Reference
+
+| Task | Command |
+|------|---------|
+| Inference | `python -m src.infer video.mp4` |
+| Training | `python -m src.train` |
+| Evaluation | `python -m src.evaluate holdout/` |
+| Check GPU | `python -c "import torch; print(torch.cuda.is_available())"` |
+| Test imports | `python -c "from src.model import HazardGRU"` |
+
+## Support
+
+- **Questions**: Open an issue with label `question`
+- **Bugs**: Open an issue with label `bug`
+- **Features**: Open an issue with label `enhancement`
+
+---
+
+**Time to first inference: < 5 minutes** ⚡
+
+Happy detecting! 🎯
