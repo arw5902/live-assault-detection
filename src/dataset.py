@@ -64,9 +64,9 @@ def extract_sequences(video_path: str, label_mode: str, detector, cfg) -> Tuple[
     X = np.stack(feats).astype(np.float32)
     M = np.stack(masks).astype(np.float32)
 
-    # Compute bbox derivatives for log_area at indices 10..12 placeholders:
-    # x[10]=log_area, x[11]=dlog_area_dt, x[12]=d2log_area_dt2
-    log_area = X[:, 10]
+    # Compute bbox derivatives for log_area at indices 9..11 placeholders:
+    # x[9]=log_area, x[10]=dlog_area_dt, x[11]=d2log_area_dt2
+    log_area = X[:, 9]
     d1 = np.zeros_like(log_area)
     d2 = np.zeros_like(log_area)
     dt = cfg.step_dt
@@ -74,8 +74,69 @@ def extract_sequences(video_path: str, label_mode: str, detector, cfg) -> Tuple[
         d1[1:] = (log_area[1:] - log_area[:-1]) / dt
     if len(log_area) >= 3:
         d2[2:] = (d1[2:] - d1[1:-1]) / dt
-    X[:, 11] = d1
-    X[:, 12] = d2
+    X[:, 10] = d1
+    X[:, 11] = d2
+
+    # Compute wrist extension dynamics at indices 45-47:
+    # x[19]=dist_l_wrist_torso, x[20]=dist_r_wrist_torso
+    # x[45]=max_wrist_extension_velocity, x[46]=max_wrist_extension_accel, x[47]=energy_ratio
+    dist_l_wrist = X[:, 19]
+    dist_r_wrist = X[:, 20]
+
+    vel_l = np.zeros_like(dist_l_wrist)
+    vel_r = np.zeros_like(dist_r_wrist)
+    if len(dist_l_wrist) >= 2:
+        vel_l[1:] = (dist_l_wrist[1:] - dist_l_wrist[:-1]) / dt
+        vel_r[1:] = (dist_r_wrist[1:] - dist_r_wrist[:-1]) / dt
+
+    accel_l = np.zeros_like(vel_l)
+    accel_r = np.zeros_like(vel_r)
+    if len(vel_l) >= 2:
+        accel_l[1:] = (vel_l[1:] - vel_l[:-1]) / dt
+        accel_r[1:] = (vel_r[1:] - vel_r[:-1]) / dt
+
+    X[:, 45] = np.maximum(vel_l, vel_r)
+    X[:, 46] = np.maximum(accel_l, accel_r)
+
+    # Compute energy ratio: upper body motion / lower body motion
+    # Upper: wrists (19, 20), Lower: ankles (29, 30)
+    upper_motion = np.abs(vel_l) + np.abs(vel_r)
+
+    dist_l_ankle = X[:, 29]
+    dist_r_ankle = X[:, 30]
+    vel_l_ankle = np.zeros_like(dist_l_ankle)
+    vel_r_ankle = np.zeros_like(dist_r_ankle)
+    if len(dist_l_ankle) >= 2:
+        vel_l_ankle[1:] = (dist_l_ankle[1:] - dist_l_ankle[:-1]) / dt
+        vel_r_ankle[1:] = (dist_r_ankle[1:] - dist_r_ankle[:-1]) / dt
+
+    lower_motion = np.abs(vel_l_ankle) + np.abs(vel_r_ankle)
+    energy_ratio = upper_motion / (upper_motion + lower_motion + 1e-6)
+    X[:, 47] = energy_ratio
+
+    # Add interaction features: motion × proximity coupling
+    # These encode "motion is only threatening when person is close AND approaching"
+    # Append 3 new features after existing 48
+    log_area = X[:, 9]
+    trans_signed_torso = X[:, 32]   # signed: positive=approaching, negative=retreating
+    divergence_torso = X[:, 34]     # torso divergence
+    wrist_accel = X[:, 46]
+
+    # Use exponential of log_area as proximity weight (larger bbox = closer = higher weight)
+    proximity_weight = np.exp(log_area * 0.1)
+
+    # Use signed translation so retreating person gets NEGATIVE approach_proximity
+    approach_proximity = trans_signed_torso * proximity_weight
+    expansion_proximity = divergence_torso * proximity_weight
+    acceleration_proximity = wrist_accel * proximity_weight
+
+    interaction_features = np.stack([approach_proximity, expansion_proximity, acceleration_proximity], axis=1)
+    X = np.concatenate([X, interaction_features], axis=1)
+
+    # Extend masks for new features (all valid if flow_ok)
+    flow_ok_mask = M[:, 41].copy()  # flow_ok is at index 41
+    interaction_masks = np.tile(flow_ok_mask.reshape(-1, 1), (1, 3))
+    M = np.concatenate([M, interaction_masks], axis=1)
 
     # Targets
     if label_mode == "safe":

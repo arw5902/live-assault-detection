@@ -58,15 +58,49 @@ def median_flow(v):
     return np.median(v, axis=0).astype(np.float32), True
 
 def radial_tangential_stats(p0, v, center):
+    """
+    Decompose optical flow into translation, divergence and residual components.
+
+    For a body-worn camera the dominant motion is global translation (body moving
+    toward camera = uniform downward shift). Decomposing this directly into
+    radial/tangential conflates translation with expansion: points to the left/right
+    of center get their translational motion split into tangential, inflating t.
+
+    Fix: subtract the median ROI flow (local translation) before computing
+    divergence, so the remaining signal is pure expansion/contraction.
+
+    Returns 4 values per ROI:
+      translation_signed - signed approach speed: positive = moving toward camera,
+                           negative = moving away. Computed as mean radial component
+                           of the median (translational) flow relative to ROI center.
+      translation_mag    - magnitude of median (translational) flow in ROI
+      divergence         - mean positive radial of RESIDUAL flow (pure expansion)
+      div_ratio          - divergence / (divergence + residual_mag + eps)
+    """
     # p0: Nx2, v: Nx2, center: (2,)
-    d = p0 - center.reshape(1,2)
+
+    # Step 1: separate global translation from local deformation
+    v_med = np.median(v, axis=0)                  # median = translational component
+    translation_mag = float(np.linalg.norm(v_med))
+    v_resid = v - v_med.reshape(1, 2)             # residual = deformation / expansion
+
+    # Signed translation: project median flow onto outward radial direction per point
+    # Positive = ROI points moving away from center on average = approaching camera
+    # Negative = ROI points moving toward center = retreating from camera
+    d = p0 - center.reshape(1, 2)
     r = np.linalg.norm(d, axis=1) + 1e-6
-    # radial component
-    radial = np.sum(d * v, axis=1) / r
-    # tangential magnitude in 2D via cross product z-component
-    tang = np.abs(d[:,0]*v[:,1] - d[:,1]*v[:,0]) / r
-    e = float(np.median(radial))
-    t = float(np.median(tang))
-    R = float(max(e,0.0) / (max(e,0.0) + t + 1e-6))
-    mag_p90 = float(np.percentile(np.linalg.norm(v, axis=1), 90))
-    return e, t, R, mag_p90
+    radial_translation = np.sum(d * v_med.reshape(1, 2), axis=1) / r
+    translation_signed = float(np.mean(radial_translation))
+
+    # Step 2: compute radial on RESIDUAL flow only
+    radial = np.sum(d * v_resid, axis=1) / r      # positive = expanding (approaching)
+
+    # Divergence: mean magnitude of positive-only radial residuals
+    pos_mask = radial > 0
+    divergence = float(np.mean(radial[pos_mask])) if pos_mask.any() else 0.0
+
+    # Divergence ratio (bounded 0-1)
+    resid_mag = float(np.mean(np.linalg.norm(v_resid, axis=1)))
+    div_ratio = divergence / (divergence + resid_mag + 1e-6)
+
+    return translation_signed, translation_mag, divergence, div_ratio

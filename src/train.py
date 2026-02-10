@@ -6,10 +6,12 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset, DataLoader
 import torch.nn.functional as F
-from .config import Config
+from .config import Config, FEATURE_NAMES
 from .dataset import build_dataset_per_video  # Video-level data for proper train/val split
 from .model import HazardGRU
 from .pose_detector import PoseDetector
+from .utils import set_seed, print_seed_info
+from .feature_importance import compute_permutation_importance, print_importance_ranking, save_importance_results
 
 class Logger:
     def __init__(self, log_file):
@@ -51,11 +53,10 @@ def main():
     print(f"Log file: {log_file}")
     print("=" * 80)
 
-    # Set random seed for reproducibility
-    np.random.seed(42)
-    torch.manual_seed(42)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(42)
+    # Set random seed for reproducibility (CRITICAL: must be before dataset building)
+    set_seed(seed=42, deterministic=True)
+    print_seed_info(seed=42, deterministic=True)
+    print()
 
     cfg = Config()
     detector = PoseDetector()
@@ -180,6 +181,25 @@ def main():
     dl_va = DataLoader(ds_va, batch_size=cfg.batch_size, shuffle=False)
 
     input_dim = ds_tr.X.shape[2]
+    num_raw_features = input_dim // 2  # Features are concatenated with masks
+
+    # Verify FEATURE_NAMES matches actual features
+    print("\n" + "=" * 80)
+    print("FEATURE CONFIGURATION VERIFICATION")
+    print("=" * 80)
+    print(f"Model input dimension: {input_dim} (features + masks)")
+    print(f"Number of raw features: {num_raw_features}")
+    print(f"Number of FEATURE_NAMES: {len(FEATURE_NAMES)}")
+
+    if num_raw_features != len(FEATURE_NAMES):
+        print("\n⚠️  WARNING: Feature count mismatch!")
+        print(f"   Expected: {num_raw_features} features")
+        print(f"   FEATURE_NAMES has: {len(FEATURE_NAMES)} names")
+        print("   Feature importance evaluation may be incorrect!")
+    else:
+        print("✓ Feature names match actual features")
+    print("=" * 80)
+    print()
 
     # Save metadata for inference
     os.makedirs("outputs/checkpoints", exist_ok=True)
@@ -325,7 +345,35 @@ def main():
     print(f"Best validation loss: {best_val_loss:.4f}")
     print(f"Best F1 score: {global_best_f1:.3f} at threshold {global_best_thresh:.2f} (epoch {best_f1_epoch})")
     print(f"Model saved to: outputs/checkpoints/hazard_gru.pt (based on best F1)")
-    print(f"Log saved to: {log_file}")
+    print("=" * 80)
+
+    # Compute feature importance using permutation importance
+    print("\n" + "=" * 80)
+    print("COMPUTING FEATURE IMPORTANCE")
+    print("=" * 80)
+
+    # Load best model for feature importance computation
+    model.load_state_dict(torch.load("outputs/checkpoints/hazard_gru.pt"))
+    model.to(device)
+    model.eval()
+
+    # Compute permutation importance
+    importances, baseline_f1 = compute_permutation_importance(
+        model=model,
+        val_loader=dl_va,
+        threshold=global_best_thresh,
+        device=device,
+        n_repeats=5  # Repeat permutation 5 times for stability
+    )
+
+    # Print ranking
+    print_importance_ranking(importances, baseline_f1)
+
+    # Save results to JSON
+    importance_output = f"outputs/logs/feature_importance_{timestamp}.json"
+    save_importance_results(importances, baseline_f1, importance_output)
+
+    print(f"\nLog saved to: {log_file}")
     print("=" * 80)
 
     logger.close()

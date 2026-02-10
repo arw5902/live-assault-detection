@@ -184,9 +184,8 @@ def build_features(
     roi_lower = (lx1,ly1,lx2,ly2)
 
     # Defaults
-    e_torso=t_torso=R_torso=magp_torso=0.0
-    e_low=t_low=R_low=magp_low=0.0
-    bg_mag=0.0
+    trans_signed_torso=trans_torso=div_torso=div_ratio_torso=0.0
+    trans_signed_low=trans_low=div_low=div_ratio_low=0.0
     bg_coh=0.0
     flow_ok = 0.0
 
@@ -198,7 +197,6 @@ def build_features(
         vbg_med, vbg_ok = median_flow(v_bg)
 
         if vbg_ok:
-            bg_mag = float(np.median(np.linalg.norm(v_bg, axis=1)))
             mean_v = np.mean(v_bg, axis=0)
             bg_coh = float(np.linalg.norm(mean_v) / (np.mean(np.linalg.norm(v_bg, axis=1)) + 1e-6))
 
@@ -207,72 +205,149 @@ def build_features(
         p0_t, p1_t, v_t = lk_flow(prev_gray, curr_gray, pts_t, cfg.lk_win_size, cfg.lk_max_level, crit)
         if v_t is not None and vbg_ok:
             v_t2 = v_t - vbg_med.reshape(1,2)
-            e_torso, t_torso, R_torso, magp_torso = radial_tangential_stats(p0_t, v_t2, torso_c)
+            trans_signed_torso, trans_torso, div_torso, div_ratio_torso = radial_tangential_stats(p0_t, v_t2, torso_c)
             flow_ok = 1.0
 
-        # lower ROI
+        # lower ROI — use its own center for decomposition so forward leg motion
+        # is correctly classified as radial (approaching), not tangential
+        lower_c = np.array([(lx1+lx2)/2.0, (ly1+ly2)/2.0], dtype=np.float32)
         pts_l = sample_points_in_box(*roi_lower, max_points=cfg.max_flow_points, margin=2)
         p0_l, p1_l, v_l = lk_flow(prev_gray, curr_gray, pts_l, cfg.lk_win_size, cfg.lk_max_level, crit)
         if v_l is not None and vbg_ok:
             v_l2 = v_l - vbg_med.reshape(1,2)
-            e_low, t_low, R_low, magp_low = radial_tangential_stats(p0_l, v_l2, torso_c)
+            trans_signed_low, trans_low, div_low, div_ratio_low = radial_tangential_stats(p0_l, v_l2, lower_c)
             flow_ok = 1.0
 
-    # motion energies from pose (computed later in dataset with derivatives preferred), placeholder 0 here
-    upper_energy = 0.0
-    lower_energy = 0.0
-    ratio_ul = 0.0
+    # New posture features
+    torso_compression = 0.0
+    wrist_height_asym = 0.0
+    face_visibility = 0.0
+    v_torso_compression = 0.0
+    v_wrist_asym = 0.0
+    v_face_vis = 1.0  # always valid (uses confidence scores)
+
+    # shoulder-to-hip distance / shoulder_width
+    has_sh = kp_valid(kps, COCO17["l_shoulder"], cfg.kp_conf_thresh) and kp_valid(kps, COCO17["r_shoulder"], cfg.kp_conf_thresh)
+    has_hp = kp_valid(kps, COCO17["l_hip"], cfg.kp_conf_thresh) and kp_valid(kps, COCO17["r_hip"], cfg.kp_conf_thresh)
+    if has_sh and has_hp and v_sh_w > 0.5:
+        sh_mid = (get_point(kps, COCO17["l_shoulder"]) + get_point(kps, COCO17["r_shoulder"])) / 2.0
+        hp_mid = (get_point(kps, COCO17["l_hip"]) + get_point(kps, COCO17["r_hip"])) / 2.0
+        sh_hp_dist = float(np.linalg.norm(sh_mid - hp_mid) / norm)
+        torso_compression = sh_hp_dist / (d_sh_w + 1e-6)
+        v_torso_compression = 1.0
+
+    # abs(wrist_L_y - wrist_R_y) / torso_scale
+    has_wl = kp_valid(kps, COCO17["l_wrist"], cfg.kp_conf_thresh)
+    has_wr = kp_valid(kps, COCO17["r_wrist"], cfg.kp_conf_thresh)
+    if has_wl and has_wr:
+        wl_y = kps[COCO17["l_wrist"], 1]
+        wr_y = kps[COCO17["r_wrist"], 1]
+        wrist_height_asym = float(abs(wl_y - wr_y) / norm)
+        v_wrist_asym = 1.0
+
+    # Face visibility score: average confidence of facial keypoints
+    # High = facing camera (potential threat), Low = facing away (walking away, low threat)
+    nose_conf = kps[COCO17["nose"], 2]
+    l_eye_conf = kps[COCO17["l_eye"], 2]
+    r_eye_conf = kps[COCO17["r_eye"], 2]
+    l_ear_conf = kps[COCO17["l_ear"], 2]
+    r_ear_conf = kps[COCO17["r_ear"], 2]
+    face_visibility = float((nose_conf + l_eye_conf + r_eye_conf + l_ear_conf + r_ear_conf) / 5.0)
+
+    # Wrist extension dynamics (velocity & acceleration computed in dataset.py from temporal derivatives)
+    max_wrist_vel = 0.0
+    max_wrist_accel = 0.0
+
+    # Energy ratio (computed in dataset.py from keypoint velocities)
+    energy_ratio = 0.0
 
     # Assemble feature vector (values) + validity mask for pose/flow parts
     # Note: bbox features validity depends on cropping.
     bbox_valid = 0.0 if anyc else 1.0
 
     x = np.array([
-        # reliability
+        # reliability (0-8)
         det_conf, kp_conf_mean, kp_conf_min, visible_kp_count,
         float(anyc), float(cl), float(cr), float(ct), float(cb),
-        float(track_age),
 
-        # approach / bbox
-        log_area, 0.0, 0.0,  # dlog_area_dt, d2log_area_dt2 computed later
+        # approach / bbox (9-16)
+        log_area, 0.0, 0.0,
         cx_n, cy_n, dcx_n, dcy_n, aspect,
 
-        # upper geometry
+        # upper geometry (17-24)
         d_wl_sl, d_wr_sr, d_wl_tc, d_wr_tc, d_sh_w, d_hip_w,
         a_el_l, a_el_r,
 
-        # lower geometry
+        # lower geometry (25-31)
         a_kn_l, a_kn_r, d_al_hl, d_ar_hr, d_al_tc, d_ar_tc, d_st,
 
-        # flow torso/lower + bg
-        e_torso, t_torso, R_torso, magp_torso,
-        e_low, t_low, R_low, magp_low,
-        bg_mag, bg_coh, flow_ok,
+        # flow torso/lower + bg (32-41)
+        trans_signed_torso, trans_torso, div_torso, div_ratio_torso,
+        trans_signed_low, trans_low, div_low, div_ratio_low,
+        bg_coh, flow_ok,
 
-        # placeholders for energies (optional)
-        upper_energy, lower_energy, ratio_ul
+        # posture features (42-44)
+        torso_compression, wrist_height_asym, face_visibility,
+
+        # dynamics placeholders (45-47)
+        max_wrist_vel, max_wrist_accel, energy_ratio
     ], dtype=np.float32)
 
     # validity mask aligned to x for the parts that can be missing:
-    # For simplicity: mark pose-derived scalars with their computed valid flags; bbox_valid; flow_ok.
     m = np.ones_like(x, dtype=np.float32)
-    # bbox derivatives placeholders will be valid only if bbox_valid
-    m[10:18] = bbox_valid  # log_area..aspect
-    # Upper pose valids
+    m[9:17] = bbox_valid
     pose_valids = [v_wl_sl,v_wr_sr,v_wl_tc,v_wr_tc,v_sh_w,v_hip_w,v_el_l,v_el_r]
-    m[18:26] = np.array(pose_valids, dtype=np.float32)
-    # Lower pose valids
+    m[17:25] = np.array(pose_valids, dtype=np.float32)
     lower_valids = [v_kn_l,v_kn_r,v_al_hl,v_ar_hr,v_al_tc,v_ar_tc,v_st]
-    m[26:33] = np.array(lower_valids, dtype=np.float32)
-    # Flow
-    m[33:44] = flow_ok
+    m[25:32] = np.array(lower_valids, dtype=np.float32)
+    m[32:42] = flow_ok
+    m[42] = v_torso_compression
+    m[43] = v_wrist_asym
+    m[44] = v_face_vis
 
     debug = {
         "bbox_valid": bbox_valid,
         "torso_ok": float(torso_ok),
         "flow_ok": flow_ok,
-        "R_torso": R_torso,
-        "R_low": R_low,
-        "bg_mag": bg_mag
+        "div_torso": div_torso,
+        "div_low": div_low,
+        "bg_coh": bg_coh,
+        "torso_compression": torso_compression,
+        "wrist_height_asym": wrist_height_asym
     }
     return x, m, debug, curr_gray
+
+def add_interaction_features(x: np.ndarray, m: np.ndarray, wrist_vel: float = 0.0, wrist_accel: float = 0.0) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Add interaction features (motion × proximity) to a single feature vector.
+    Used during online inference when temporal derivatives are available from previous frames.
+
+    Args:
+        x: feature vector [48] from build_features
+        m: mask vector [48]
+        wrist_vel: max wrist extension velocity (computed externally from frame history)
+        wrist_accel: max wrist extension acceleration (computed externally from frame history)
+
+    Returns:
+        x_aug: augmented feature vector [51]
+        m_aug: augmented mask vector [51]
+    """
+    # Extract base features
+    log_area = x[9]
+    trans_signed_torso = x[32]   # signed: positive=approaching, negative=retreating
+    divergence_torso = x[34]     # torso divergence
+
+    # Proximity weight
+    proximity_weight = np.exp(log_area * 0.1)
+
+    # Use signed translation so retreating person gets NEGATIVE approach_proximity
+    approach_proximity = trans_signed_torso * proximity_weight
+    expansion_proximity = divergence_torso * proximity_weight
+    acceleration_proximity = wrist_accel * proximity_weight
+
+    # Augment feature vector
+    flow_ok_val = m[41]  # flow_ok at index 41
+    x_aug = np.concatenate([x, [approach_proximity, expansion_proximity, acceleration_proximity]])
+    m_aug = np.concatenate([m, [flow_ok_val, flow_ok_val, flow_ok_val]])
+
+    return x_aug, m_aug

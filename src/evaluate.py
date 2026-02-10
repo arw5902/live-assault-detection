@@ -10,7 +10,8 @@ from .config import Config
 from .model import HazardGRU
 from .pose_detector import PoseDetector
 from .tracker import SingleTargetTracker
-from .features import build_features
+from .features import build_features, add_interaction_features
+from .utils import set_seed, print_seed_info
 
 class Logger:
     def __init__(self, log_file):
@@ -41,12 +42,19 @@ def evaluate_video(video_path, ground_truth, model, detector, cfg, device, thres
     prev_gray = None
     prev_bbox = None
 
+    # Track wrist distances for velocity/acceleration computation
+    prev_wrist_dist_l = None
+    prev_wrist_dist_r = None
+    prev_wrist_vel_l = 0.0
+    prev_wrist_vel_r = 0.0
+
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         return None
 
     frame_idx = 0
     detections = []  # List of (frame, hazard_score)
+    dt = cfg.step_dt
 
     while True:
         ok, frame = cap.read()
@@ -67,6 +75,31 @@ def evaluate_video(video_path, ground_truth, model, detector, cfg, device, thres
 
         x, m, _, prev_gray = build_features(frame, prev_gray, prev_bbox, det, track_age, lost, cfg)
         prev_bbox = bbox
+
+        # Compute wrist dynamics for interaction features
+        dist_l = x[19]  # dist_l_wrist_torso
+        dist_r = x[20]  # dist_r_wrist_torso
+
+        wrist_vel = 0.0
+        wrist_accel = 0.0
+
+        if prev_wrist_dist_l is not None:
+            vel_l = (dist_l - prev_wrist_dist_l) / dt
+            vel_r = (dist_r - prev_wrist_dist_r) / dt
+            wrist_vel = max(vel_l, vel_r)
+
+            accel_l = (vel_l - prev_wrist_vel_l) / dt
+            accel_r = (vel_r - prev_wrist_vel_r) / dt
+            wrist_accel = max(accel_l, accel_r)
+
+            prev_wrist_vel_l = vel_l
+            prev_wrist_vel_r = vel_r
+
+        prev_wrist_dist_l = dist_l
+        prev_wrist_dist_r = dist_r
+
+        # Add interaction features
+        x, m = add_interaction_features(x, m, wrist_vel, wrist_accel)
 
         xm = np.concatenate([x, m], axis=0).astype(np.float32)
         buf.append(xm)
@@ -138,11 +171,10 @@ def main(holdout_dir: str):
     print(f"Evaluation started at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"Log file: {log_file}")
 
-    # Set random seed for reproducibility
-    np.random.seed(42)
-    torch.manual_seed(42)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(42)
+    # Set random seed for reproducibility (CRITICAL: must be before feature extraction)
+    set_seed(seed=42, deterministic=True)
+    print_seed_info(seed=42, deterministic=True)
+    print()
 
     cfg = Config()
     detector = PoseDetector()
@@ -293,18 +325,18 @@ def main(holdout_dir: str):
 
         print(f"\n--- PRE-CONTACT Level (threshold={threshold:.2f}) ---")
         print(f"Pre-contact Warning Rate: {pre_contact_warning_rate:.1%} ({len(pre_contact_warnings)}/{len(lead_times)} detected attacks)")
-        print(f"  Mean Lead Time: {np.mean(lead_times):.1f} frames ({np.mean(lead_times)/cfg.proc_fps:.2f}s)")
-        print(f"  Median Lead Time: {np.median(lead_times):.1f} frames ({np.median(lead_times)/cfg.proc_fps:.2f}s)")
+        print(f"  Mean Lead Time: {np.mean(lead_times):.1f} frames ({np.mean(lead_times)/cfg.input_fps:.2f}s)")
+        print(f"  Median Lead Time: {np.median(lead_times):.1f} frames ({np.median(lead_times)/cfg.input_fps:.2f}s)")
         if pre_contact_warnings:
-            print(f"  Pre-contact warnings only: {np.mean(pre_contact_warnings):.1f} frames ({np.mean(pre_contact_warnings)/cfg.proc_fps:.2f}s)")
+            print(f"  Pre-contact warnings only: {np.mean(pre_contact_warnings):.1f} frames ({np.mean(pre_contact_warnings)/cfg.input_fps:.2f}s)")
 
         if lead_times_high:
             pre_contact_high = [lt for lt in lead_times_high if lt > 0]
             high_rate = len(lead_times_high) / max(1, len(detected_attacks))
             print(f"\n--- HIGH Level (threshold={cfg.high_thresh:.2f}) ---")
             print(f"HIGH Warning Rate: {high_rate:.1%} ({len(lead_times_high)}/{len(detected_attacks)} detected attacks)")
-            print(f"  Mean Lead Time: {np.mean(lead_times_high):.1f} frames ({np.mean(lead_times_high)/cfg.proc_fps:.2f}s)")
-            print(f"  Median Lead Time: {np.median(lead_times_high):.1f} frames ({np.median(lead_times_high)/cfg.proc_fps:.2f}s)")
+            print(f"  Mean Lead Time: {np.mean(lead_times_high):.1f} frames ({np.mean(lead_times_high)/cfg.input_fps:.2f}s)")
+            print(f"  Median Lead Time: {np.median(lead_times_high):.1f} frames ({np.median(lead_times_high)/cfg.input_fps:.2f}s)")
             if pre_contact_high:
                 high_warning_rate = len(pre_contact_high) / max(1, len(lead_times_high))
                 print(f"  Pre-contact HIGH warnings: {high_warning_rate:.1%} ({len(pre_contact_high)}/{len(lead_times_high)})")
@@ -314,8 +346,8 @@ def main(holdout_dir: str):
             critical_rate = len(lead_times_critical) / max(1, len(detected_attacks))
             print(f"\n--- CRITICAL Level (threshold={cfg.critical_thresh:.2f}) ---")
             print(f"CRITICAL Warning Rate: {critical_rate:.1%} ({len(lead_times_critical)}/{len(detected_attacks)} detected attacks)")
-            print(f"  Mean Lead Time: {np.mean(lead_times_critical):.1f} frames ({np.mean(lead_times_critical)/cfg.proc_fps:.2f}s)")
-            print(f"  Median Lead Time: {np.median(lead_times_critical):.1f} frames ({np.median(lead_times_critical)/cfg.proc_fps:.2f}s)")
+            print(f"  Mean Lead Time: {np.mean(lead_times_critical):.1f} frames ({np.mean(lead_times_critical)/cfg.input_fps:.2f}s)")
+            print(f"  Median Lead Time: {np.median(lead_times_critical):.1f} frames ({np.median(lead_times_critical)/cfg.input_fps:.2f}s)")
             if pre_contact_critical:
                 critical_warning_rate = len(pre_contact_critical) / max(1, len(lead_times_critical))
                 print(f"  Pre-contact CRITICAL warnings: {critical_warning_rate:.1%} ({len(pre_contact_critical)}/{len(lead_times_critical)})")
@@ -357,13 +389,13 @@ def main(holdout_dir: str):
         print(f"False Positive Rate (pre-onset): {fp_attack_rate:.1%}")
     if lead_times:
         print(f"\nWarning Performance:")
-        print(f"  PRE-CONTACT: {pre_contact_warning_rate:.1%} pre-contact | Mean Lead: {np.mean(lead_times):.1f} frames ({np.mean(lead_times)/cfg.proc_fps:.2f}s)")
+        print(f"  PRE-CONTACT: {pre_contact_warning_rate:.1%} pre-contact | Mean Lead: {np.mean(lead_times):.1f} frames ({np.mean(lead_times)/cfg.input_fps:.2f}s)")
         if lead_times_high:
             high_warning_rate = len([lt for lt in lead_times_high if lt > 0]) / max(1, len(lead_times_high))
-            print(f"  HIGH: {len(lead_times_high)}/{len(detected_attacks)} attacks | {high_warning_rate:.1%} pre-contact | Mean Lead: {np.mean(lead_times_high):.1f} frames ({np.mean(lead_times_high)/cfg.proc_fps:.2f}s)")
+            print(f"  HIGH: {len(lead_times_high)}/{len(detected_attacks)} attacks | {high_warning_rate:.1%} pre-contact | Mean Lead: {np.mean(lead_times_high):.1f} frames ({np.mean(lead_times_high)/cfg.input_fps:.2f}s)")
         if lead_times_critical:
             critical_warning_rate = len([lt for lt in lead_times_critical if lt > 0]) / max(1, len(lead_times_critical))
-            print(f"  CRITICAL: {len(lead_times_critical)}/{len(detected_attacks)} attacks | {critical_warning_rate:.1%} pre-contact | Mean Lead: {np.mean(lead_times_critical):.1f} frames ({np.mean(lead_times_critical)/cfg.proc_fps:.2f}s)")
+            print(f"  CRITICAL: {len(lead_times_critical)}/{len(detected_attacks)} attacks | {critical_warning_rate:.1%} pre-contact | Mean Lead: {np.mean(lead_times_critical):.1f} frames ({np.mean(lead_times_critical)/cfg.input_fps:.2f}s)")
     print("=" * 80)
 
     print(f"\nEvaluation completed at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
