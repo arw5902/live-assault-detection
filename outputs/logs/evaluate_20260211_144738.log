@@ -1,0 +1,174 @@
+Evaluation started at 2026-02-11 14:47:38
+Log file: outputs/logs/evaluate_20260211_144738.log
+Random seeds set for reproducibility (seed=42)
+  - Python random seed: 42
+  - NumPy random seed: 42
+  - PyTorch manual seed: 42
+  - CUDA: Not available
+
+================================================================================
+HOLDOUT EVALUATION - Pre-contact Detection
+Holdout directory: holdout
+Using threshold: 0.50 (from training optimization)
+================================================================================
+
+--- Processing Attack Videos ---
+Processing h13.mp4... DETECTED (max_hazard=0.871)
+Processing h14.mp4... DETECTED (max_hazard=0.790)
+Processing h15.mp4... DETECTED (max_hazard=0.881)
+Processing h17.mp4... DETECTED (max_hazard=0.769)
+Processing h18.mp4... DETECTED (max_hazard=0.922)
+Processing h19.mp4... DETECTED (max_hazard=0.870)
+Processing h20.mp4... DETECTED (max_hazard=0.797)
+Processing h21.mp4... DETECTED (max_hazard=0.730)
+Processing h22.mp4... DETECTED (max_hazard=0.864)
+Processing h23.mp4... DETECTED (max_hazard=0.857)
+Processing h24.mp4... DETECTED (max_hazard=0.757)
+Processing h25.mp4... DETECTED (max_hazard=0.613)
+Processing h26.mp4... DETECTED (max_hazard=0.745)
+Processing h27.mp4... DETECTED (max_hazard=0.870)
+Processing h28.mp4... DETECTED (max_hazard=0.891)
+Processing h29.mp4... DETECTED (max_hazard=0.761)
+Processing h30.mp4... DETECTED (max_hazard=0.795)
+Processing h31.mp4... DETECTED (max_hazard=0.900)
+Processing h32.mp4... DETECTED (max_hazard=0.672)
+Processing h116.mp4... DETECTED (max_hazard=0.846)
+Processing h117.mp4... DETECTED (max_hazard=0.851)
+Processing h118.mp4... DETECTED (max_hazard=0.864)
+Processing h119.mp4... DETECTED (max_hazard=0.786)
+Processing h120.mp4... DETECTED (max_hazard=0.724)
+Processing h121.mp4... DETECTED (max_hazard=0.804)
+Processing h122.mp4... DETECTED (max_hazard=0.880)
+Processing h123.mp4... DETECTED (max_hazard=0.743)
+Processing h124.mp4... DETECTED (max_hazard=0.873)
+Processing h125.mp4... DETECTED (max_hazard=0.853)
+Processing h129_part3.mp4... DETECTED (max_hazard=0.760)
+Processing h130_part2.mp4... DETECTED (max_hazard=0.859)
+Processing h130_part5.mp4... DETECTED (max_hazard=0.899)
+Processing h130_part9.mp4... DETECTED (max_hazard=0.918)
+Processing h130_part10.mp4... DETECTED (max_hazard=0.789)
+Processing h130_part11.mp4... DETECTED (max_hazard=0.885)
+Processing h130_part12.mp4... DETECTED (max_hazard=0.843)
+Processing h130_part14.mp4... DETECTED (max_hazard=0.874)
+Warning: h131_part1.mp4 not found in attack/, skipping
+Warning: h131_part2.mp4 not found in attack/, skipping
+Warning: h132_part1.mp4 not found in attack/, skipping
+Warning: h132_part2.mp4 not found in attack/, skipping
+Warning: h132_part3.mp4 not found in attack/, skipping
+Warning: h132_part4.mp4 not found in attack/, skipping
+Warning: h132_part5.mp4 not found in attack/, skipping
+Warning: h132_part6.mp4 not found in attack/, skipping
+Warning: h132_part7.mp4 not found in attack/, skipping
+Warning: h132_part8.mp4 not found in attack/, skipping
+Warning: h132_part9.mp4 not found in attack/, skipping
+Warning: h132_part10.mp4 not found in attack/, skipping
+Warning: h132_part11.mp4 not found in attack/, skipping
+Warning: h132_part12.mp4 not found in attack/, skipping
+Warning: h132_part13.mp4 not found in attack/, skipping
+Warning: h133_part1.mp4 not found in attack/, skipping
+Warning: h133_part2.mp4 not found in attack/, skipping
+Warning: h133_part3.mp4 not found in attack/, skipping
+Warning: h133_part4.mp4 not found in attack/, skipping
+Warning: h133_part5.mp4 not found in attack/, skipping
+Warning: h133_part6.mp4 not found in attack/, skipping
+Warning: h133_part7.mp4 not found in attack/, skipping
+Warning: h133_part8.mp4 not found in attack/, skipping
+Warning: h133_part9.mp4 not found in attack/, skipping
+
+--- Processing Safe Videos ---
+Warning: holdout/safe not found
+
+================================================================================
+ATTACK VIDEOS - Multi-Level Warning Analysis
+================================================================================
+h13.mp4              | Onset@   0 Attack@  32 Lead=  +8 [PRE-CONTACT] | Warnings: PC@  24 H@  24 C@  39 | first=0.655 max=0.871
+h14.mp4              | Onset@ 140 Attack@ 164 Lead=  +5 [PRE-CONTACT] | Warnings: PC@ 159 H@ 159 | first=0.613 max=0.790
+h15.mp4              | FP @   18 (before onset@ 126) first=0.657 max=0.881
+h17.mp4              | Onset@  78 Attack@  93 Lead=  -6 [LATE] | Warnings: PC@  99 H@  99 | first=0.630 max=0.769
+h18.mp4              | Onset@  90 Attack@ 116 Lead=  +2 [PRE-CONTACT] | Warnings: PC@ 114 H@ 114 C@ 120 | first=0.719 max=0.922
+h19.mp4              | Onset@   9 Attack@  38 Lead=  +2 [PRE-CONTACT] | Warnings: PC@  36 H@  36 C@  45 | first=0.644 max=0.870
+h20.mp4              | Onset@  15 Attack@  36 Lead=  +0 [ON-TIME] | Warnings: PC@  36 H@  84 | first=0.543 max=0.797
+h21.mp4              | Onset@  12 Attack@  42 Lead=  +6 [PRE-CONTACT] | Warnings: PC@  36 H@  78 | first=0.533 max=0.730
+h22.mp4              | Onset@  15 Attack@  32 Lead=  -1 [LATE] | Warnings: PC@  33 H@  33 C@  36 | first=0.781 max=0.864
+h23.mp4              | Onset@  57 Attack@  74 Lead=  +8 [PRE-CONTACT] | Warnings: PC@  66 H@  69 C@ 108 | first=0.504 max=0.857
+h24.mp4              | Onset@  14 Attack@  42 Lead=  -6 [LATE] | Warnings: PC@  48 H@  48 | first=0.757 max=0.757
+h25.mp4              | Onset@  12 Attack@  26 Lead=  -7 [LATE] | Warnings: PC@  33 H@  33 | first=0.604 max=0.613
+h26.mp4              | Onset@  14 Attack@  45 Lead=  +9 [PRE-CONTACT] | Warnings: PC@  36 H@  42 | first=0.503 max=0.745
+h27.mp4              | Onset@  21 Attack@  41 Lead=  -4 [LATE] | Warnings: PC@  45 H@  45 C@  87 | first=0.709 max=0.870
+h28.mp4              | Onset@  53 Attack@  72 Lead=  -3 [LATE] | Warnings: PC@  75 H@  75 C@  78 | first=0.713 max=0.891
+h29.mp4              | Onset@   6 Attack@  42 Lead=  +9 [PRE-CONTACT] | Warnings: PC@  33 H@  36 | first=0.585 max=0.761
+h30.mp4              | Onset@   3 Attack@  18 Lead=  +3 [PRE-CONTACT] | Warnings: PC@  15 H@  15 | first=0.718 max=0.795
+h31.mp4              | Onset@  20 Attack@  45 Lead=  +6 [PRE-CONTACT] | Warnings: PC@  39 H@  39 C@  42 | first=0.790 max=0.900
+h32.mp4              | FP @   12 (before onset@  35) first=0.535 max=0.672
+h116.mp4             | Onset@  14 Attack@  34 Lead=  -5 [LATE] | Warnings: PC@  39 H@  45 C@  45 | first=0.575 max=0.846
+h117.mp4             | Onset@   6 Attack@  33 Lead= -12 [LATE] | Warnings: PC@  45 H@  48 C@  51 | first=0.589 max=0.851
+h118.mp4             | Onset@   6 Attack@  20 Lead=  +5 [PRE-CONTACT] | Warnings: PC@  15 H@  15 C@  24 | first=0.717 max=0.864
+h119.mp4             | Onset@  53 Attack@  68 Lead=  -1 [LATE] | Warnings: PC@  69 H@  93 | first=0.570 max=0.786
+h120.mp4             | Onset@  47 Attack@  72 Lead=  +0 [ON-TIME] | Warnings: PC@  72 H@  75 | first=0.542 max=0.724
+h121.mp4             | Onset@  39 Attack@  62 Lead= +14 [PRE-CONTACT] | Warnings: PC@  48 H@  57 C@  63 | first=0.534 max=0.804
+h122.mp4             | Onset@   1 Attack@  30 Lead=  +3 [PRE-CONTACT] | Warnings: PC@  27 H@  27 C@  60 | first=0.702 max=0.880
+h123.mp4             | Onset@   3 Attack@  39 Lead= -21 [LATE] | Warnings: PC@  60 H@  60 | first=0.630 max=0.743
+h124.mp4             | Onset@  21 Attack@  60 Lead=  +3 [PRE-CONTACT] | Warnings: PC@  57 H@  57 C@  84 | first=0.645 max=0.873
+h125.mp4             | Onset@  15 Attack@  60 Lead=  +9 [PRE-CONTACT] | Warnings: PC@  51 H@  54 C@  99 | first=0.570 max=0.853
+h129_part3.mp4       | Onset@ 180 Attack@ 201 Lead=  -6 [LATE] | Warnings: PC@ 207 H@ 219 | first=0.552 max=0.760
+h130_part2.mp4       | Onset@  93 Attack@ 118 Lead=  +7 [PRE-CONTACT] | Warnings: PC@ 111 H@ 123 C@ 126 | first=0.582 max=0.859
+h130_part5.mp4       | Onset@ 204 Attack@ 222 Lead=  +0 [ON-TIME] | Warnings: PC@ 222 H@ 222 C@ 267 | first=0.672 max=0.899
+h130_part9.mp4       | Onset@  54 Attack@  74 Lead=  -1 [LATE] | Warnings: PC@  75 H@  78 C@ 117 | first=0.526 max=0.918
+h130_part10.mp4      | FP @   27 (before onset@ 156) first=0.562 max=0.789
+h130_part11.mp4      | FP @   12 (before onset@ 363) first=0.671 max=0.885
+h130_part12.mp4      | Onset@  57 Attack@  84 Lead= +12 [PRE-CONTACT] | Warnings: PC@  72 H@  78 C@  81 | first=0.586 max=0.843
+h130_part14.mp4      | Onset@  33 Attack@  58 Lead=  +7 [PRE-CONTACT] | Warnings: PC@  51 H@  54 C@  57 | first=0.528 max=0.874
+
+Detection Rate: 89.2% (33/37)
+Missed Rate: 0.0% (0/37)
+False Positives (pre-onset detections): 10.8% (4/37)
+
+--- PRE-CONTACT Level (threshold=0.50) ---
+Pre-contact Warning Rate: 54.5% (18/33 detected attacks)
+  Mean Lead Time: 1.4 frames (0.05s)
+  Median Lead Time: 2.0 frames (0.07s)
+  Pre-contact warnings only: 6.6 frames (0.22s)
+
+--- HIGH Level (threshold=0.60) ---
+HIGH Warning Rate: 100.0% (33/33 detected attacks)
+  Mean Lead Time: -4.3 frames (-0.14s)
+  Median Lead Time: 0.0 frames (0.00s)
+  Pre-contact HIGH warnings: 48.5% (16/33)
+
+--- CRITICAL Level (threshold=0.80) ---
+CRITICAL Warning Rate: 60.6% (20/33 detected attacks)
+  Mean Lead Time: -16.2 frames (-0.54s)
+  Median Lead Time: -7.5 frames (-0.25s)
+  Pre-contact CRITICAL warnings: 15.0% (3/20)
+
+================================================================================
+SAFE VIDEOS
+================================================================================
+
+False Positive Rate (safe videos): 0.0% (0/0)
+True Negative Rate: 0.0% (0/0)
+
+================================================================================
+OVERALL SUMMARY
+================================================================================
+Total Videos: 37
+  Attacks: 37
+  Safe: 0
+
+Thresholds:
+  PRE-CONTACT: 0.50
+  HIGH: 0.60
+  CRITICAL: 0.80
+
+Attack Detection: 89.2%
+False Positive Rate (safe videos): 0.0%
+False Positive Rate (pre-onset): 10.8%
+
+Warning Performance:
+  PRE-CONTACT: 54.5% pre-contact | Mean Lead: 1.4 frames (0.05s)
+  HIGH: 33/33 attacks | 48.5% pre-contact | Mean Lead: -4.3 frames (-0.14s)
+  CRITICAL: 20/33 attacks | 15.0% pre-contact | Mean Lead: -16.2 frames (-0.54s)
+================================================================================
+
+Evaluation completed at 2026-02-11 14:50:57
+Log saved to: outputs/logs/evaluate_20260211_144738.log

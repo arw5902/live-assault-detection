@@ -1,0 +1,80 @@
+Evaluation started at 2026-02-11 14:34:07
+Log file: outputs/logs/evaluate_20260211_143407.log
+Random seeds set for reproducibility (seed=42)
+  - Python random seed: 42
+  - NumPy random seed: 42
+  - PyTorch manual seed: 42
+  - CUDA: Not available
+
+================================================================================
+HOLDOUT EVALUATION - Pre-contact Detection
+Holdout directory: holdout
+Using threshold: 0.55 (from training optimization)
+================================================================================
+
+--- Processing Attack Videos ---
+Warning: holdout/attack not found
+
+--- Processing Safe Videos ---
+Processing h130_part7.mp4... OK (max_hazard=0.420)
+Processing h130_part8_benddown.mp4... OK (max_hazard=0.411)
+Processing h130_part6.mp4... OK (max_hazard=0.106)
+Processing h130_part4.mp4... OK (max_hazard=0.202)
+Processing h129_part2.mp4... OK (max_hazard=0.334)
+Processing h130_part1.mp4... OK (max_hazard=0.529)
+Processing h129_part3.mp4... OK (max_hazard=0.133)
+Processing h129_part1.mp4... OK (max_hazard=0.395)
+Processing h130_part3.mp4... OK (max_hazard=0.382)
+Processing h7.mp4... FP (max_hazard=0.644)
+Processing h128_part2.mp4... OK (max_hazard=0.130)
+Processing h128_part3.mp4... OK (max_hazard=0.224)
+Processing h128_part1.mp4... OK (max_hazard=0.256)
+Processing h11.mp4... OK (max_hazard=0.343)
+Processing h105.mp4... OK (max_hazard=0.270)
+Processing h114.mp4... OK (max_hazard=0.473)
+Processing h115.mp4... OK (max_hazard=0.421)
+Processing h127_part6.mp4... OK (max_hazard=0.043)
+Processing h127_part7.mp4... OK (max_hazard=0.088)
+Processing h127_part5.mp4... OK (max_hazard=0.042)
+Processing h130_part13.mp4... OK (max_hazard=0.308)
+Processing h127_part4.mp4... OK (max_hazard=0.064)
+Processing h127_part1.mp4... OK (max_hazard=0.040)
+Processing h127_part3.mp4... OK (max_hazard=0.094)
+Processing h1_part1.mp4... FP (max_hazard=0.711)
+Processing h127_part2.mp4... OK (max_hazard=0.058)
+
+================================================================================
+ATTACK VIDEOS - Multi-Level Warning Analysis
+================================================================================
+
+Detection Rate: 0.0% (0/0)
+Missed Rate: 0.0% (0/0)
+False Positives (pre-onset detections): 0.0% (0/0)
+
+================================================================================
+SAFE VIDEOS
+================================================================================
+h7.mp4               | FP @ frame 234 (max_hazard=0.644)
+h1_part1.mp4         | FP @ frame 84 (max_hazard=0.711)
+
+False Positive Rate (safe videos): 7.7% (2/26)
+True Negative Rate: 92.3% (24/26)
+
+================================================================================
+OVERALL SUMMARY
+================================================================================
+Total Videos: 26
+  Attacks: 0
+  Safe: 26
+
+Thresholds:
+  PRE-CONTACT: 0.55
+  HIGH: 0.60
+  CRITICAL: 0.80
+
+Attack Detection: 0.0%
+False Positive Rate (safe videos): 7.7%
+================================================================================
+
+Evaluation completed at 2026-02-11 14:42:50
+Log saved to: outputs/logs/evaluate_20260211_143407.log

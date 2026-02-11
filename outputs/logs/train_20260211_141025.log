@@ -1,0 +1,243 @@
+Training started at 2026-02-11 14:10:25
+Log file: outputs/logs/train_20260211_141025.log
+================================================================================
+Random seeds set for reproducibility (seed=42)
+  - Python random seed: 42
+  - NumPy random seed: 42
+  - PyTorch manual seed: 42
+  - CUDA: Not available
+
+Dataset window balance:
+  safe_videos=95 steps=10219 windows=3308 stride=3
+  attack_videos=149 steps=2826 windows=2230 stride=1
+  safe/attack window ratio = 1.48
+
+Stratified video-level split (class-balanced):
+  Total videos: 243
+  Train videos: 203 (safe=78, attack=125)
+  Val videos: 40 (safe=17, attack=23)
+
+Train set balance:
+  Total windows: 4622 (83.5% of all windows)
+  Safe windows: 2736 (59.2%)
+  Attack windows: 1886 (40.8%)
+  Imbalance ratio: 1.45:1
+
+Val set balance:
+  Total windows: 916 (16.5% of all windows)
+  Safe windows: 572 (62.4%)
+  Attack windows: 344 (37.6%)
+
+Class imbalance ratio (safe/attack windows): 1.45
+
+
+================================================================================
+FEATURE CONFIGURATION VERIFICATION
+================================================================================
+Model input dimension: 102 (features + masks)
+Number of raw features: 51
+Number of FEATURE_NAMES: 51
+✓ Feature names match actual features
+================================================================================
+
+Focal Loss parameters: gamma=4.00, alpha=0.250
+  (gamma: higher=more focus on hard examples)
+  (alpha: higher=prioritize attack class/recall)
+  (class imbalance ratio: 1.45:1)
+
+epoch 1/40 train=0.0129 val=0.0089 best_val=0.0089
+epoch 2/40 train=0.0083 val=0.0078 best_val=0.0078
+epoch 3/40 train=0.0068 val=0.0069 best_val=0.0069
+epoch 4/40 train=0.0056 val=0.0073 best_val=0.0069
+  New best F1: 0.895 at threshold 0.50 - Model saved!
+epoch 5/40 train=0.0050 val=0.0065 best_val=0.0065
+  Val Metrics @ thresh=0.50: Acc=0.922 Prec=0.915 Rec=0.875 F1=0.895
+epoch 6/40 train=0.0044 val=0.0061 best_val=0.0061
+epoch 7/40 train=0.0039 val=0.0068 best_val=0.0061
+epoch 8/40 train=0.0034 val=0.0061 best_val=0.0061
+epoch 9/40 train=0.0031 val=0.0058 best_val=0.0058
+  New best F1: 0.920 at threshold 0.50 - Model saved!
+epoch 10/40 train=0.0028 val=0.0062 best_val=0.0058
+  Val Metrics @ thresh=0.50: Acc=0.940 Prec=0.924 Rec=0.916 F1=0.920
+epoch 11/40 train=0.0027 val=0.0062 best_val=0.0058
+epoch 12/40 train=0.0023 val=0.0064 best_val=0.0058
+epoch 13/40 train=0.0026 val=0.0065 best_val=0.0058
+epoch 14/40 train=0.0021 val=0.0078 best_val=0.0058
+epoch 15/40 train=0.0024 val=0.0071 best_val=0.0058
+  Val Metrics @ thresh=0.40: Acc=0.934 Prec=0.894 Rec=0.936 F1=0.915
+epoch 16/40 train=0.0018 val=0.0071 best_val=0.0058
+epoch 17/40 train=0.0017 val=0.0076 best_val=0.0058
+epoch 18/40 train=0.0014 val=0.0105 best_val=0.0058
+epoch 19/40 train=0.0014 val=0.0075 best_val=0.0058
+  New best F1: 0.920 at threshold 0.50 - Model saved!
+epoch 20/40 train=0.0014 val=0.0085 best_val=0.0058
+  Val Metrics @ thresh=0.50: Acc=0.941 Prec=0.939 Rec=0.901 F1=0.920
+epoch 21/40 train=0.0013 val=0.0092 best_val=0.0058
+epoch 22/40 train=0.0017 val=0.0093 best_val=0.0058
+epoch 23/40 train=0.0015 val=0.0098 best_val=0.0058
+epoch 24/40 train=0.0011 val=0.0104 best_val=0.0058
+  New best F1: 0.927 at threshold 0.55 - Model saved!
+epoch 25/40 train=0.0011 val=0.0113 best_val=0.0058
+  Val Metrics @ thresh=0.55: Acc=0.945 Prec=0.927 Rec=0.927 F1=0.927
+epoch 26/40 train=0.0010 val=0.0113 best_val=0.0058
+epoch 27/40 train=0.0011 val=0.0105 best_val=0.0058
+epoch 28/40 train=0.0008 val=0.0119 best_val=0.0058
+epoch 29/40 train=0.0007 val=0.0127 best_val=0.0058
+epoch 30/40 train=0.0006 val=0.0124 best_val=0.0058
+  Val Metrics @ thresh=0.40: Acc=0.941 Prec=0.892 Rec=0.959 F1=0.924
+epoch 31/40 train=0.0015 val=0.0117 best_val=0.0058
+epoch 32/40 train=0.0018 val=0.0106 best_val=0.0058
+epoch 33/40 train=0.0009 val=0.0115 best_val=0.0058
+epoch 34/40 train=0.0007 val=0.0121 best_val=0.0058
+epoch 35/40 train=0.0008 val=0.0123 best_val=0.0058
+  Val Metrics @ thresh=0.50: Acc=0.938 Prec=0.918 Rec=0.916 F1=0.917
+epoch 36/40 train=0.0005 val=0.0157 best_val=0.0058
+epoch 37/40 train=0.0004 val=0.0128 best_val=0.0058
+epoch 38/40 train=0.0004 val=0.0151 best_val=0.0058
+epoch 39/40 train=0.0005 val=0.0176 best_val=0.0058
+epoch 40/40 train=0.0006 val=0.0167 best_val=0.0058
+  Val Metrics @ thresh=0.30: Acc=0.936 Prec=0.882 Rec=0.956 F1=0.918
+
+================================================================================
+Training completed at 2026-02-11 14:34:03
+Best validation loss: 0.0058
+Best F1 score: 0.927 at threshold 0.55 (epoch 25)
+Model saved to: outputs/checkpoints/hazard_gru.pt (based on best F1)
+================================================================================
+
+================================================================================
+COMPUTING FEATURE IMPORTANCE
+================================================================================
+
+All features shape: (916, 5, 102)
+  N=916 windows
+  T=5 timesteps
+  D=102 dimensions (features + masks)
+
+Baseline F1 score: 0.9273
+Computing permutation importance (n_repeats=5)...
+Number of features to evaluate: 51
+Number of feature names available: 51
+  [ 0] det_conf                      : F1 drop = +0.0003 ± 0.0005
+  [ 1] kp_conf_mean                  : F1 drop = +0.0004 ± 0.0008
+  [ 2] kp_conf_min                   : F1 drop = +0.0087 ± 0.0014
+  [ 3] visible_kp_count              : F1 drop = +0.0055 ± 0.0060
+  [ 4] anyc                          : F1 drop = +0.0000 ± 0.0000
+  [ 5] crop_left                     : F1 drop = +0.0060 ± 0.0045
+  [ 6] crop_right                    : F1 drop = -0.0002 ± 0.0009
+  [ 7] crop_top                      : F1 drop = +0.0036 ± 0.0014
+  [ 8] crop_bottom                   : F1 drop = -0.0008 ± 0.0007
+  [ 9] log_area                      : F1 drop = +0.0421 ± 0.0055
+  [10] dlog_area_dt                  : F1 drop = +0.0033 ± 0.0015
+  [11] d2log_area_dt2                : F1 drop = +0.0065 ± 0.0017
+  [12] bbox_center_x                 : F1 drop = -0.0007 ± 0.0027
+  [13] bbox_center_y                 : F1 drop = -0.0004 ± 0.0031
+  [14] bbox_center_vx                : F1 drop = +0.0010 ± 0.0006
+  [15] bbox_center_vy                : F1 drop = -0.0014 ± 0.0016
+  [16] bbox_aspect                   : F1 drop = +0.0000 ± 0.0000
+  [17] dist_l_wrist_l_shoulder       : F1 drop = +0.0006 ± 0.0019
+  [18] dist_r_wrist_r_shoulder       : F1 drop = +0.0037 ± 0.0025
+  [19] dist_l_wrist_torso            : F1 drop = +0.0017 ± 0.0011
+  [20] dist_r_wrist_torso            : F1 drop = +0.0023 ± 0.0022
+  [21] shoulder_width                : F1 drop = +0.0011 ± 0.0005
+  [22] hip_width                     : F1 drop = +0.0011 ± 0.0005
+  [23] angle_l_elbow                 : F1 drop = +0.0027 ± 0.0020
+  [24] angle_r_elbow                 : F1 drop = +0.0013 ± 0.0023
+  [25] angle_l_knee                  : F1 drop = +0.0102 ± 0.0022
+  [26] angle_r_knee                  : F1 drop = +0.0090 ± 0.0037
+  [27] dist_l_ankle_l_hip            : F1 drop = +0.0011 ± 0.0007
+  [28] dist_r_ankle_r_hip            : F1 drop = -0.0005 ± 0.0007
+  [29] dist_l_ankle_torso            : F1 drop = +0.0067 ± 0.0034
+  [30] dist_r_ankle_torso            : F1 drop = -0.0003 ± 0.0006
+  [31] stance_width                  : F1 drop = +0.0021 ± 0.0015
+  [32] translation_signed_torso      : F1 drop = +0.0250 ± 0.0070
+  [33] translation_torso             : F1 drop = +0.0734 ± 0.0090
+  [34] divergence_torso              : F1 drop = +0.0480 ± 0.0073
+  [35] div_ratio_torso               : F1 drop = +0.0000 ± 0.0000
+  [36] translation_signed_lower      : F1 drop = +0.0176 ± 0.0050
+  [37] translation_lower             : F1 drop = +0.0833 ± 0.0061
+  [38] divergence_lower              : F1 drop = +0.0466 ± 0.0046
+  [39] div_ratio_lower               : F1 drop = +0.0007 ± 0.0007
+  [40] bg_flow_coherence             : F1 drop = +0.0003 ± 0.0005
+  [41] flow_ok                       : F1 drop = +0.0000 ± 0.0000
+  [42] torso_compression_ratio       : F1 drop = +0.0137 ± 0.0019
+  [43] wrist_height_asymmetry        : F1 drop = +0.0038 ± 0.0017
+  [44] face_visibility               : F1 drop = +0.0103 ± 0.0018
+  [45] max_wrist_extension_velocity  : F1 drop = +0.0012 ± 0.0032
+  [46] max_wrist_extension_accel     : F1 drop = +0.0536 ± 0.0076
+  [47] log_scale                     : F1 drop = +0.0012 ± 0.0006
+  [48] approach_rate                 : F1 drop = +0.0059 ± 0.0028
+  [49] expansion_proximity           : F1 drop = +0.0729 ± 0.0030
+  [50] acceleration_proximity        : F1 drop = +0.0632 ± 0.0046
+
+================================================================================
+FEATURE IMPORTANCE RANKING (sorted by F1 drop)
+================================================================================
+Baseline F1: 0.9273
+
+Rank   Feature                        F1 Drop      Std        Importance % Index 
+--------------------------------------------------------------------------------
+1    ⭐ translation_lower              +0.083283  ±0.006067    12.98%      37    
+2    ⭐ translation_torso              +0.073423  ±0.008952    11.45%      33    
+3    ⭐ expansion_proximity            +0.072903  ±0.003044    11.37%      49    
+4    ⭐ acceleration_proximity         +0.063191  ±0.004626     9.85%      50    
+5    ⭐ max_wrist_extension_accel      +0.053599  ±0.007612     8.36%      46    
+6       divergence_torso               +0.047975  ±0.007260     7.48%      34    
+7       divergence_lower               +0.046639  ±0.004605     7.27%      38    
+8       log_area                       +0.042115  ±0.005502     6.57%      9     
+9       translation_signed_torso       +0.025029  ±0.007012     3.90%      32    
+10      translation_signed_lower       +0.017607  ±0.004956     2.75%      36    
+11      torso_compression_ratio        +0.013691  ±0.001865     2.13%      42    
+12      face_visibility                +0.010295  ±0.001848     1.61%      44    
+13      angle_l_knee                   +0.010194  ±0.002233     1.59%      25    
+14      angle_r_knee                   +0.009028  ±0.003717     1.41%      26    
+15      kp_conf_min                    +0.008687  ±0.001436     1.35%      2     
+16      dist_l_ankle_torso             +0.006690  ±0.003433     1.04%      29    
+17      d2log_area_dt2                 +0.006479  ±0.001717     1.01%      11    
+18      crop_left                      +0.005965  ±0.004511     0.93%      5     
+19      approach_rate                  +0.005861  ±0.002789     0.91%      48    
+20      visible_kp_count               +0.005512  ±0.005994     0.86%      3     
+21      wrist_height_asymmetry         +0.003756  ±0.001704     0.59%      43    
+22      dist_r_wrist_r_shoulder        +0.003664  ±0.002547     0.57%      18    
+23      crop_top                       +0.003576  ±0.001409     0.56%      7     
+24      dlog_area_dt                   +0.003265  ±0.001457     0.51%      10    
+25      angle_l_elbow                  +0.002728  ±0.001999     0.43%      23    
+26      dist_r_wrist_torso             +0.002283  ±0.002221     0.36%      20    
+27      stance_width                   +0.002057  ±0.001519     0.32%      31    
+28      dist_l_wrist_torso             +0.001701  ±0.001100     0.27%      19    
+29      angle_r_elbow                  +0.001335  ±0.002334     0.21%      24    
+30      log_scale                      +0.001229  ±0.000635     0.19%      47    
+31      max_wrist_extension_velocity   +0.001156  ±0.003200     0.18%      45    
+32      shoulder_width                 +0.001077  ±0.000538     0.17%      21    
+33      hip_width                      +0.001077  ±0.000538     0.17%      22    
+34      dist_l_ankle_l_hip             +0.001065  ±0.000701     0.17%      27    
+35      bbox_center_vx                 +0.001035  ±0.000623     0.16%      14    
+36      div_ratio_lower                +0.000680  ±0.000732     0.11%      39    
+37      dist_l_wrist_l_shoulder        +0.000623  ±0.001939     0.10%      17    
+38      kp_conf_mean                   +0.000412  ±0.000763     0.06%      1     
+39      det_conf                       +0.000269  ±0.000538     0.04%      0     
+40      bg_flow_coherence              +0.000269  ±0.000538     0.04%      40    
+41      anyc                           +0.000000  ±0.000000     0.00%      4     
+42      bbox_aspect                    +0.000000  ±0.000000     0.00%      16    
+43      div_ratio_torso                +0.000000  ±0.000000     0.00%      35    
+44      flow_ok                        +0.000000  ±0.000000     0.00%      41    
+45      crop_right                     -0.000169  ±0.000854     0.00%      6     
+46      dist_r_ankle_torso             -0.000270  ±0.000556     0.00%      30    
+47      bbox_center_y                  -0.000438  ±0.003075     0.00%      13    
+48      dist_r_ankle_r_hip             -0.000540  ±0.000661     0.00%      28    
+49      bbox_center_x                  -0.000706  ±0.002712     0.00%      12    
+50      crop_bottom                    -0.000768  ±0.000716     0.00%      8     
+51      bbox_center_vy                 -0.001390  ±0.001632     0.00%      15    
+================================================================================
+
+Top 5 Most Important Features:
+  1. translation_lower: 13.0% (F1 drop: +0.0833)
+  2. translation_torso: 11.4% (F1 drop: +0.0734)
+  3. expansion_proximity: 11.4% (F1 drop: +0.0729)
+  4. acceleration_proximity: 9.9% (F1 drop: +0.0632)
+  5. max_wrist_extension_accel: 8.4% (F1 drop: +0.0536)
+
+Feature importance results saved to: outputs/logs/feature_importance_20260211_141025.json
+
+Log saved to: outputs/logs/train_20260211_141025.log
+================================================================================

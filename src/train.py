@@ -169,9 +169,9 @@ def main():
     if val_fraction < 0.10 or val_fraction > 0.20:
         print(f"\n  WARNING: Val fraction {val_fraction:.1%} is outside target range [10%-20%]")
 
-    # Compute class weights for Weighted BCE based on TRAIN set
+    # Compute class imbalance ratio for reference (focal loss handles this via alpha)
     attack_weight = n_safe_tr / max(1, n_attack_tr)
-    print(f"\nAttack class weight (for training): {attack_weight:.2f}")
+    print(f"\nClass imbalance ratio (safe/attack windows): {attack_weight:.2f}")
     print()
 
     ds_tr = WindowDataset(Xtr, Mtr, ytr)

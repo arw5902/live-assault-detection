@@ -76,6 +76,13 @@ def extract_sequences(video_path: str, label_mode: str, detector, cfg) -> Tuple[
         d2[2:] = (d1[2:] - d1[1:-1]) / dt
     X[:, 10] = d1
     X[:, 11] = d2
+    # Update masks: frame 0 has no prior → dlog_area_dt invalid; frame 0-1 → d2 invalid
+    if len(d1) >= 1:
+        M[1:, 10] = 1.0   # valid from frame 1 onward
+        M[0, 10] = 0.0    # frame 0 has no derivative
+    if len(d2) >= 2:
+        M[2:, 11] = 1.0   # valid from frame 2 onward
+        M[:2, 11] = 0.0   # frames 0-1 have no second derivative
 
     # Compute wrist extension dynamics at indices 45-46:
     # x[19]=dist_l_wrist_torso, x[20]=dist_r_wrist_torso
@@ -97,9 +104,17 @@ def extract_sequences(video_path: str, label_mode: str, detector, cfg) -> Tuple[
 
     X[:, 45] = np.maximum(vel_l, vel_r)
     X[:, 46] = np.maximum(accel_l, accel_r)
+    # Update masks: velocity valid from frame 1, acceleration valid from frame 2
+    if len(vel_l) >= 1:
+        M[1:, 45] = 1.0
+        M[0, 45] = 0.0
+    if len(accel_l) >= 2:
+        M[2:, 46] = 1.0
+        M[:2, 46] = 0.0
 
     # Compute dlog_scale_dt from pose-derived log_scale at index 47
-    # log_scale is the log of the median of {shoulder_width_px, hip_width_px, torso_height_px}
+    # log_scale is the log of the minimum of {shoulder_width_px, hip_width_px, torso_height_px}
+    # (lateral widths only included when both eyes visible; torso_height always included)
     # Its temporal derivative measures the rate of apparent size growth — invariant to person
     # physical size because it uses rate of change, not absolute size.
     log_scale = X[:, 47]

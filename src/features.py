@@ -280,8 +280,7 @@ def build_features(
         scale_estimates.append(d_sh_w * norm)           # shoulder width in pixels (face-forward only)
     if both_eyes_visible and v_hip_w > 0.5:
         scale_estimates.append(d_hip_w * norm)          # hip width in pixels (face-forward only)
-    has_sh = kp_valid(kps, COCO17["l_shoulder"], cfg.kp_conf_thresh) and kp_valid(kps, COCO17["r_shoulder"], cfg.kp_conf_thresh)
-    has_hp = kp_valid(kps, COCO17["l_hip"], cfg.kp_conf_thresh) and kp_valid(kps, COCO17["r_hip"], cfg.kp_conf_thresh)
+    # has_sh / has_hp already computed above for torso_compression — reuse here
     if has_sh and has_hp:
         sh_pt = (get_point(kps, COCO17["l_shoulder"]) + get_point(kps, COCO17["r_shoulder"])) / 2.0
         hp_pt = (get_point(kps, COCO17["l_hip"]) + get_point(kps, COCO17["r_hip"])) / 2.0
@@ -342,6 +341,13 @@ def build_features(
     m[42] = v_torso_compression
     m[43] = v_wrist_asym
     m[44] = v_face_vis
+    # Indices 10, 11 (dlog_area_dt, d2log_area_dt2) and 45, 46 (wrist vel/accel) are
+    # 0.0 placeholders filled by dataset.py / evaluate.py / infer.py from frame history.
+    # Mark invalid here so the GRU knows they are not yet computed.
+    m[10] = 0.0
+    m[11] = 0.0
+    m[45] = 0.0
+    m[46] = 0.0
     m[47] = v_log_scale
 
     debug = {

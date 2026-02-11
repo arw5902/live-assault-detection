@@ -1,0 +1,160 @@
+Evaluation started at 2026-02-11 14:43:50
+Log file: outputs/logs/evaluate_20260211_144350.log
+Random seeds set for reproducibility (seed=42)
+  - Python random seed: 42
+  - NumPy random seed: 42
+  - PyTorch manual seed: 42
+  - CUDA: Not available
+
+================================================================================
+HOLDOUT EVALUATION - Pre-contact Detection
+Holdout directory: holdout
+Using threshold: 0.50 (from training optimization)
+================================================================================
+
+--- Processing Attack Videos ---
+Warning: h13.mp4 not found in attack/, skipping
+Warning: h14.mp4 not found in attack/, skipping
+Warning: h15.mp4 not found in attack/, skipping
+Warning: h17.mp4 not found in attack/, skipping
+Warning: h18.mp4 not found in attack/, skipping
+Warning: h19.mp4 not found in attack/, skipping
+Warning: h20.mp4 not found in attack/, skipping
+Warning: h21.mp4 not found in attack/, skipping
+Warning: h22.mp4 not found in attack/, skipping
+Warning: h23.mp4 not found in attack/, skipping
+Warning: h24.mp4 not found in attack/, skipping
+Warning: h25.mp4 not found in attack/, skipping
+Warning: h26.mp4 not found in attack/, skipping
+Warning: h27.mp4 not found in attack/, skipping
+Warning: h28.mp4 not found in attack/, skipping
+Warning: h29.mp4 not found in attack/, skipping
+Warning: h30.mp4 not found in attack/, skipping
+Warning: h31.mp4 not found in attack/, skipping
+Warning: h32.mp4 not found in attack/, skipping
+Warning: h116.mp4 not found in attack/, skipping
+Warning: h117.mp4 not found in attack/, skipping
+Warning: h118.mp4 not found in attack/, skipping
+Warning: h119.mp4 not found in attack/, skipping
+Warning: h120.mp4 not found in attack/, skipping
+Warning: h121.mp4 not found in attack/, skipping
+Warning: h122.mp4 not found in attack/, skipping
+Warning: h123.mp4 not found in attack/, skipping
+Warning: h124.mp4 not found in attack/, skipping
+Warning: h125.mp4 not found in attack/, skipping
+Warning: h129_part3.mp4 not found in attack/, skipping
+Warning: h130_part2.mp4 not found in attack/, skipping
+Warning: h130_part5.mp4 not found in attack/, skipping
+Warning: h130_part9.mp4 not found in attack/, skipping
+Warning: h130_part10.mp4 not found in attack/, skipping
+Warning: h130_part11.mp4 not found in attack/, skipping
+Warning: h130_part12.mp4 not found in attack/, skipping
+Warning: h130_part14.mp4 not found in attack/, skipping
+Processing h131_part1.mp4... DETECTED (max_hazard=0.907)
+Processing h131_part2.mp4... DETECTED (max_hazard=0.820)
+Processing h132_part1.mp4... DETECTED (max_hazard=0.838)
+Processing h132_part2.mp4... DETECTED (max_hazard=0.841)
+Processing h132_part3.mp4... DETECTED (max_hazard=0.886)
+Processing h132_part4.mp4... DETECTED (max_hazard=0.737)
+Processing h132_part5.mp4... DETECTED (max_hazard=0.796)
+Processing h132_part6.mp4... DETECTED (max_hazard=0.821)
+Processing h132_part7.mp4... DETECTED (max_hazard=0.857)
+Processing h132_part8.mp4... DETECTED (max_hazard=0.836)
+Processing h132_part9.mp4... DETECTED (max_hazard=0.885)
+Processing h132_part10.mp4... DETECTED (max_hazard=0.872)
+Processing h132_part11.mp4... DETECTED (max_hazard=0.827)
+Processing h132_part12.mp4... DETECTED (max_hazard=0.892)
+Processing h132_part13.mp4... DETECTED (max_hazard=0.925)
+Processing h133_part1.mp4... DETECTED (max_hazard=0.823)
+Processing h133_part2.mp4... DETECTED (max_hazard=0.821)
+Processing h133_part3.mp4... DETECTED (max_hazard=0.854)
+Processing h133_part4.mp4... DETECTED (max_hazard=0.831)
+Processing h133_part5.mp4... DETECTED (max_hazard=0.833)
+Processing h133_part6.mp4... DETECTED (max_hazard=0.821)
+Processing h133_part7.mp4... DETECTED (max_hazard=0.714)
+Processing h133_part8.mp4... DETECTED (max_hazard=0.881)
+Processing h133_part9.mp4... DETECTED (max_hazard=0.905)
+
+--- Processing Safe Videos ---
+Warning: holdout/safe not found
+
+================================================================================
+ATTACK VIDEOS - Multi-Level Warning Analysis
+================================================================================
+h131_part1.mp4       | Onset@ 197 Attack@ 212 Lead=  -1 [LATE] | Warnings: PC@ 213 H@ 213 C@ 216 | first=0.692 max=0.907
+h131_part2.mp4       | Onset@ 207 Attack@ 222 Lead=  +9 [PRE-CONTACT] | Warnings: PC@ 213 H@ 213 C@ 219 | first=0.692 max=0.820
+h132_part1.mp4       | Onset@ 200 Attack@ 222 Lead= +12 [PRE-CONTACT] | Warnings: PC@ 210 H@ 219 C@ 231 | first=0.516 max=0.838
+h132_part2.mp4       | Onset@ 155 Attack@ 188 Lead=  -1 [LATE] | Warnings: PC@ 189 H@ 192 C@ 195 | first=0.546 max=0.841
+h132_part3.mp4       | Onset@  84 Attack@ 111 Lead=  +6 [PRE-CONTACT] | Warnings: PC@ 105 H@ 108 C@ 153 | first=0.526 max=0.886
+h132_part4.mp4       | Onset@  83 Attack@ 107 Lead=  +2 [PRE-CONTACT] | Warnings: PC@ 105 H@ 108 | first=0.533 max=0.737
+h132_part5.mp4       | Onset@  81 Attack@ 111 Lead=  +3 [PRE-CONTACT] | Warnings: PC@ 108 H@ 108 | first=0.641 max=0.796
+h132_part6.mp4       | Onset@ 164 Attack@ 194 Lead=  +5 [PRE-CONTACT] | Warnings: PC@ 189 H@ 192 C@ 216 | first=0.598 max=0.821
+h132_part7.mp4       | Onset@ 160 Attack@ 187 Lead=  +4 [PRE-CONTACT] | Warnings: PC@ 183 H@ 186 C@ 219 | first=0.530 max=0.857
+h132_part8.mp4       | Onset@ 127 Attack@ 153 Lead= +12 [PRE-CONTACT] | Warnings: PC@ 141 H@ 144 C@ 156 | first=0.532 max=0.836
+h132_part9.mp4       | Onset@ 140 Attack@ 165 Lead=  +9 [PRE-CONTACT] | Warnings: PC@ 156 H@ 156 C@ 165 | first=0.634 max=0.885
+h132_part10.mp4      | Onset@ 106 Attack@ 129 Lead=  +6 [PRE-CONTACT] | Warnings: PC@ 123 H@ 126 C@ 126 | first=0.550 max=0.872
+h132_part11.mp4      | Onset@  74 Attack@ 117 Lead= +18 [PRE-CONTACT] | Warnings: PC@  99 H@ 102 C@ 108 | first=0.564 max=0.827
+h132_part12.mp4      | Onset@  11 Attack@  63 Lead= +24 [PRE-CONTACT] | Warnings: PC@  39 H@  39 C@  42 | first=0.645 max=0.892
+h132_part13.mp4      | Onset@  19 Attack@  73 Lead= +37 [PRE-CONTACT] | Warnings: PC@  36 H@  39 C@  45 | first=0.544 max=0.925
+h133_part1.mp4       | Onset@  79 Attack@ 111 Lead=  +9 [PRE-CONTACT] | Warnings: PC@ 102 H@ 102 C@ 114 | first=0.751 max=0.823
+h133_part2.mp4       | Onset@   8 Attack@  54 Lead= +21 [PRE-CONTACT] | Warnings: PC@  33 H@  33 C@  42 | first=0.716 max=0.821
+h133_part3.mp4       | Onset@   6 Attack@  61 Lead= +19 [PRE-CONTACT] | Warnings: PC@  42 H@  63 C@  69 | first=0.509 max=0.854
+h133_part4.mp4       | Onset@  15 Attack@  75 Lead= +12 [PRE-CONTACT] | Warnings: PC@  63 H@  63 C@  66 | first=0.682 max=0.831
+h133_part5.mp4       | Onset@   4 Attack@  75 Lead= +12 [PRE-CONTACT] | Warnings: PC@  63 H@  66 C@  78 | first=0.586 max=0.833
+h133_part6.mp4       | Onset@   1 Attack@  67 Lead= +40 [PRE-CONTACT] | Warnings: PC@  27 H@  27 C@  69 | first=0.776 max=0.821
+h133_part7.mp4       | Onset@   9 Attack@  82 Lead= +10 [PRE-CONTACT] | Warnings: PC@  72 H@  78 | first=0.576 max=0.714
+h133_part8.mp4       | Onset@  75 Attack@ 131 Lead=  +8 [PRE-CONTACT] | Warnings: PC@ 123 H@ 126 C@ 129 | first=0.596 max=0.881
+h133_part9.mp4       | Onset@  61 Attack@ 109 Lead= +19 [PRE-CONTACT] | Warnings: PC@  90 H@  90 C@ 111 | first=0.672 max=0.905
+
+Detection Rate: 100.0% (24/24)
+Missed Rate: 0.0% (0/24)
+False Positives (pre-onset detections): 0.0% (0/24)
+
+--- PRE-CONTACT Level (threshold=0.50) ---
+Pre-contact Warning Rate: 91.7% (22/24 detected attacks)
+  Mean Lead Time: 12.3 frames (0.41s)
+  Median Lead Time: 9.5 frames (0.32s)
+  Pre-contact warnings only: 13.5 frames (0.45s)
+
+--- HIGH Level (threshold=0.60) ---
+HIGH Warning Rate: 100.0% (24/24 detected attacks)
+  Mean Lead Time: 9.4 frames (0.31s)
+  Median Lead Time: 7.0 frames (0.23s)
+  Pre-contact HIGH warnings: 83.3% (20/24)
+
+--- CRITICAL Level (threshold=0.80) ---
+CRITICAL Warning Rate: 87.5% (21/24 detected attacks)
+  Mean Lead Time: -2.4 frames (-0.08s)
+  Median Lead Time: -2.0 frames (-0.07s)
+  Pre-contact CRITICAL warnings: 38.1% (8/21)
+
+================================================================================
+SAFE VIDEOS
+================================================================================
+
+False Positive Rate (safe videos): 0.0% (0/0)
+True Negative Rate: 0.0% (0/0)
+
+================================================================================
+OVERALL SUMMARY
+================================================================================
+Total Videos: 24
+  Attacks: 24
+  Safe: 0
+
+Thresholds:
+  PRE-CONTACT: 0.50
+  HIGH: 0.60
+  CRITICAL: 0.80
+
+Attack Detection: 100.0%
+False Positive Rate (safe videos): 0.0%
+
+Warning Performance:
+  PRE-CONTACT: 91.7% pre-contact | Mean Lead: 12.3 frames (0.41s)
+  HIGH: 24/24 attacks | 83.3% pre-contact | Mean Lead: 9.4 frames (0.31s)
+  CRITICAL: 21/24 attacks | 38.1% pre-contact | Mean Lead: -2.4 frames (-0.08s)
+================================================================================
+
+Evaluation completed at 2026-02-11 14:46:10
+Log saved to: outputs/logs/evaluate_20260211_144350.log

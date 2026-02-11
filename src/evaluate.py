@@ -96,18 +96,22 @@ def evaluate_video(video_path, ground_truth, model, detector, cfg, device, thres
         # --- log_area derivatives (indices 10, 11) ---
         dlog_area_dt = 0.0
         d2log_area_dt2 = 0.0
-        if prev_log_area is not None:
+        have_log_area_deriv = prev_log_area is not None
+        if have_log_area_deriv:
             dlog_area_dt = (log_area - prev_log_area) / dt
             d2log_area_dt2 = (dlog_area_dt - prev_dlog_area_dt) / dt
         prev_log_area = log_area
         prev_dlog_area_dt = dlog_area_dt
         x[10] = dlog_area_dt
         x[11] = d2log_area_dt2
+        m[10] = 1.0 if have_log_area_deriv else 0.0
+        m[11] = 1.0 if have_log_area_deriv else 0.0
 
         # --- wrist extension velocity / acceleration (indices 45, 46) ---
         wrist_vel = 0.0
         wrist_accel = 0.0
-        if prev_wrist_dist_l is not None:
+        have_wrist_deriv = prev_wrist_dist_l is not None
+        if have_wrist_deriv:
             vel_l = (dist_l - prev_wrist_dist_l) / dt
             vel_r = (dist_r - prev_wrist_dist_r) / dt
             wrist_vel = max(vel_l, vel_r)
@@ -122,6 +126,8 @@ def evaluate_video(video_path, ground_truth, model, detector, cfg, device, thres
         prev_wrist_dist_r = dist_r
         x[45] = wrist_vel
         x[46] = wrist_accel
+        m[45] = 1.0 if have_wrist_deriv else 0.0
+        m[46] = 1.0 if have_wrist_deriv else 0.0
 
         # --- log_scale derivative for approach_rate (index 48) ---
         dlog_scale_dt = 0.0
