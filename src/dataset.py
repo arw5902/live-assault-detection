@@ -77,9 +77,9 @@ def extract_sequences(video_path: str, label_mode: str, detector, cfg) -> Tuple[
     X[:, 10] = d1
     X[:, 11] = d2
 
-    # Compute wrist extension dynamics at indices 45-47:
+    # Compute wrist extension dynamics at indices 45-46:
     # x[19]=dist_l_wrist_torso, x[20]=dist_r_wrist_torso
-    # x[45]=max_wrist_extension_velocity, x[46]=max_wrist_extension_accel, x[47]=energy_ratio
+    # x[45]=max_wrist_extension_velocity, x[46]=max_wrist_extension_accel
     dist_l_wrist = X[:, 19]
     dist_r_wrist = X[:, 20]
 
@@ -98,39 +98,35 @@ def extract_sequences(video_path: str, label_mode: str, detector, cfg) -> Tuple[
     X[:, 45] = np.maximum(vel_l, vel_r)
     X[:, 46] = np.maximum(accel_l, accel_r)
 
-    # Compute energy ratio: upper body motion / lower body motion
-    # Upper: wrists (19, 20), Lower: ankles (29, 30)
-    upper_motion = np.abs(vel_l) + np.abs(vel_r)
-
-    dist_l_ankle = X[:, 29]
-    dist_r_ankle = X[:, 30]
-    vel_l_ankle = np.zeros_like(dist_l_ankle)
-    vel_r_ankle = np.zeros_like(dist_r_ankle)
-    if len(dist_l_ankle) >= 2:
-        vel_l_ankle[1:] = (dist_l_ankle[1:] - dist_l_ankle[:-1]) / dt
-        vel_r_ankle[1:] = (dist_r_ankle[1:] - dist_r_ankle[:-1]) / dt
-
-    lower_motion = np.abs(vel_l_ankle) + np.abs(vel_r_ankle)
-    energy_ratio = upper_motion / (upper_motion + lower_motion + 1e-6)
-    X[:, 47] = energy_ratio
+    # Compute dlog_scale_dt from pose-derived log_scale at index 47
+    # log_scale is the log of the median of {shoulder_width_px, hip_width_px, torso_height_px}
+    # Its temporal derivative measures the rate of apparent size growth — invariant to person
+    # physical size because it uses rate of change, not absolute size.
+    log_scale = X[:, 47]
+    dlog_scale_dt = np.zeros_like(log_scale)
+    if len(log_scale) >= 2:
+        dlog_scale_dt[1:] = (log_scale[1:] - log_scale[:-1]) / dt
 
     # Add interaction features: motion × proximity coupling
     # These encode "motion is only threatening when person is close AND approaching"
-    # Append 3 new features after existing 48
-    log_area = X[:, 9]
+    # Append 3 new features after existing 48 → total 51 features
     trans_signed_torso = X[:, 32]   # signed: positive=approaching, negative=retreating
     divergence_torso = X[:, 34]     # torso divergence
     wrist_accel = X[:, 46]
 
-    # Use exponential of log_area as proximity weight (larger bbox = closer = higher weight)
-    proximity_weight = np.exp(log_area * 0.1)
+    # approach_rate: only positive when BOTH scale is growing AND flow is toward camera.
+    # A person lifting his leg 5m away barely changes apparent size → dlog_scale_dt ≈ 0 → approach_rate ≈ 0.
+    # A retreating person has trans_signed_torso < 0 → approach_rate = 0.
+    approach_rate = np.maximum(dlog_scale_dt, 0.0) * np.maximum(trans_signed_torso, 0.0)
 
-    # Use signed translation so retreating person gets NEGATIVE approach_proximity
-    approach_proximity = trans_signed_torso * proximity_weight
+    # expansion_proximity and acceleration_proximity still use log_scale as proximity weight
+    # (larger apparent size = person is closer = stronger signal weight)
+    proximity_weight = np.exp(log_scale * 0.1)
+
     expansion_proximity = divergence_torso * proximity_weight
     acceleration_proximity = wrist_accel * proximity_weight
 
-    interaction_features = np.stack([approach_proximity, expansion_proximity, acceleration_proximity], axis=1)
+    interaction_features = np.stack([approach_rate, expansion_proximity, acceleration_proximity], axis=1)
     X = np.concatenate([X, interaction_features], axis=1)
 
     # Extend masks for new features (all valid if flow_ok)

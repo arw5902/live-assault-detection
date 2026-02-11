@@ -258,8 +258,46 @@ def build_features(
     max_wrist_vel = 0.0
     max_wrist_accel = 0.0
 
-    # Energy ratio (computed in dataset.py from keypoint velocities)
-    energy_ratio = 0.0
+    # Robust scale: minimum of pose-based apparent size estimates in pixels.
+    # More stable than bbox area because it is invariant to arm raises and partial pose changes.
+    # Each estimate is un-normalized (raw pixels), so log_scale is independent of torso_s.
+    # We take the MINIMUM across available estimates:
+    #   - No single keypoint distance is reliable alone (noisy keypoints can inflate one estimate)
+    #   - min() picks the most conservative value, resisting upward outliers
+    #   - A spuriously large torso_height_px (noisy hip/shoulder keypoint) does not inflate log_scale
+    #   - All three estimates are invariant to arm raises, so min() doesn't lose arm-raise robustness
+    #
+    # Facing-camera guard for lateral widths:
+    #   shoulder_width and hip_width are lateral distances that collapse to near zero when the
+    #   person turns sideways or away. Including them in that state would cause a spurious drop
+    #   in log_scale and a noisy dlog_scale_dt spike. We therefore only include them when both
+    #   eyes are visible — a reliable proxy for the person facing toward the camera.
+    both_eyes_visible = (kp_valid(kps, COCO17["l_eye"], cfg.kp_conf_thresh) and
+                         kp_valid(kps, COCO17["r_eye"], cfg.kp_conf_thresh))
+
+    scale_estimates = []
+    if both_eyes_visible and v_sh_w > 0.5:
+        scale_estimates.append(d_sh_w * norm)           # shoulder width in pixels (face-forward only)
+    if both_eyes_visible and v_hip_w > 0.5:
+        scale_estimates.append(d_hip_w * norm)          # hip width in pixels (face-forward only)
+    has_sh = kp_valid(kps, COCO17["l_shoulder"], cfg.kp_conf_thresh) and kp_valid(kps, COCO17["r_shoulder"], cfg.kp_conf_thresh)
+    has_hp = kp_valid(kps, COCO17["l_hip"], cfg.kp_conf_thresh) and kp_valid(kps, COCO17["r_hip"], cfg.kp_conf_thresh)
+    if has_sh and has_hp:
+        sh_pt = (get_point(kps, COCO17["l_shoulder"]) + get_point(kps, COCO17["r_shoulder"])) / 2.0
+        hp_pt = (get_point(kps, COCO17["l_hip"]) + get_point(kps, COCO17["r_hip"])) / 2.0
+        torso_height_px = float(np.linalg.norm(sh_pt - hp_pt))
+        if torso_height_px > 5.0:
+            scale_estimates.append(torso_height_px)     # torso height always included (stable under rotation)
+
+    if len(scale_estimates) > 0:
+        robust_scale = float(min(scale_estimates))
+        log_scale = float(np.log(max(robust_scale, 1.0)))
+        v_log_scale = 1.0
+    else:
+        # Fallback to sqrt(bbox_area) when no keypoints available
+        x1b, y1b, x2b, y2b = bbox
+        log_scale = float(np.log(max(np.sqrt((x2b - x1b) * (y2b - y1b)), 1.0)))
+        v_log_scale = 0.0  # mark as unreliable fallback
 
     # Assemble feature vector (values) + validity mask for pose/flow parts
     # Note: bbox features validity depends on cropping.
@@ -289,8 +327,8 @@ def build_features(
         # posture features (42-44)
         torso_compression, wrist_height_asym, face_visibility,
 
-        # dynamics placeholders (45-47)
-        max_wrist_vel, max_wrist_accel, energy_ratio
+        # dynamics (45-47)
+        max_wrist_vel, max_wrist_accel, log_scale
     ], dtype=np.float32)
 
     # validity mask aligned to x for the parts that can be missing:
@@ -304,6 +342,7 @@ def build_features(
     m[42] = v_torso_compression
     m[43] = v_wrist_asym
     m[44] = v_face_vis
+    m[47] = v_log_scale
 
     debug = {
         "bbox_valid": bbox_valid,
@@ -317,7 +356,13 @@ def build_features(
     }
     return x, m, debug, curr_gray
 
-def add_interaction_features(x: np.ndarray, m: np.ndarray, wrist_vel: float = 0.0, wrist_accel: float = 0.0) -> Tuple[np.ndarray, np.ndarray]:
+def add_interaction_features(
+    x: np.ndarray,
+    m: np.ndarray,
+    wrist_vel: float = 0.0,
+    wrist_accel: float = 0.0,
+    dlog_scale_dt: float = 0.0,
+) -> Tuple[np.ndarray, np.ndarray]:
     """
     Add interaction features (motion × proximity) to a single feature vector.
     Used during online inference when temporal derivatives are available from previous frames.
@@ -327,27 +372,33 @@ def add_interaction_features(x: np.ndarray, m: np.ndarray, wrist_vel: float = 0.
         m: mask vector [48]
         wrist_vel: max wrist extension velocity (computed externally from frame history)
         wrist_accel: max wrist extension acceleration (computed externally from frame history)
+        dlog_scale_dt: rate of change of log_scale (log_scale[t] - log_scale[t-1]) / dt.
+                       Positive = person is growing in apparent size (approaching).
+                       Computed externally from successive build_features() calls.
 
     Returns:
         x_aug: augmented feature vector [51]
         m_aug: augmented mask vector [51]
     """
     # Extract base features
-    log_area = x[9]
-    trans_signed_torso = x[32]   # signed: positive=approaching, negative=retreating
-    divergence_torso = x[34]     # torso divergence
+    log_scale = x[47]            # pose-derived log apparent size (index 47)
+    trans_signed_torso = x[32]  # signed flow: positive=approaching, negative=retreating
+    divergence_torso = x[34]    # torso divergence
 
-    # Proximity weight
-    proximity_weight = np.exp(log_area * 0.1)
+    # approach_rate: positive only when BOTH apparent size is growing AND flow is toward camera.
+    # Distant-person leg lift: dlog_scale_dt ≈ 0 → approach_rate ≈ 0.
+    # Retreating person: trans_signed_torso < 0 → approach_rate = 0.
+    approach_rate = float(max(dlog_scale_dt, 0.0) * max(trans_signed_torso, 0.0))
 
-    # Use signed translation so retreating person gets NEGATIVE approach_proximity
-    approach_proximity = trans_signed_torso * proximity_weight
+    # Proximity weight based on log_scale (larger apparent size = closer = stronger signal)
+    proximity_weight = float(np.exp(log_scale * 0.1))
+
     expansion_proximity = divergence_torso * proximity_weight
     acceleration_proximity = wrist_accel * proximity_weight
 
     # Augment feature vector
     flow_ok_val = m[41]  # flow_ok at index 41
-    x_aug = np.concatenate([x, [approach_proximity, expansion_proximity, acceleration_proximity]])
+    x_aug = np.concatenate([x, [approach_rate, expansion_proximity, acceleration_proximity]])
     m_aug = np.concatenate([m, [flow_ok_val, flow_ok_val, flow_ok_val]])
 
     return x_aug, m_aug

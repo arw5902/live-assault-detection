@@ -48,6 +48,15 @@ def evaluate_video(video_path, ground_truth, model, detector, cfg, device, thres
     prev_wrist_vel_l = 0.0
     prev_wrist_vel_r = 0.0
 
+    # Track log_area for dlog_area_dt / d2log_area_dt2 (indices 10, 11)
+    # build_features() leaves these as 0.0 placeholders; dataset.py fills them from the full
+    # sequence. We must replicate that here frame-by-frame to avoid a train/eval mismatch.
+    prev_log_area = None
+    prev_dlog_area_dt = 0.0
+
+    # Track log_scale for dlog_scale_dt computation (approach_rate)
+    prev_log_scale = None
+
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         return None
@@ -76,13 +85,28 @@ def evaluate_video(video_path, ground_truth, model, detector, cfg, device, thres
         x, m, _, prev_gray = build_features(frame, prev_gray, prev_bbox, det, track_age, lost, cfg)
         prev_bbox = bbox
 
-        # Compute wrist dynamics for interaction features
+        # Compute temporal derivatives — must match dataset.py post-processing exactly,
+        # since build_features() leaves x[10], x[11], x[45], x[46] as 0.0 placeholders.
+
+        log_area = x[9]
         dist_l = x[19]  # dist_l_wrist_torso
         dist_r = x[20]  # dist_r_wrist_torso
+        log_scale = x[47]  # pose-derived log apparent size
 
+        # --- log_area derivatives (indices 10, 11) ---
+        dlog_area_dt = 0.0
+        d2log_area_dt2 = 0.0
+        if prev_log_area is not None:
+            dlog_area_dt = (log_area - prev_log_area) / dt
+            d2log_area_dt2 = (dlog_area_dt - prev_dlog_area_dt) / dt
+        prev_log_area = log_area
+        prev_dlog_area_dt = dlog_area_dt
+        x[10] = dlog_area_dt
+        x[11] = d2log_area_dt2
+
+        # --- wrist extension velocity / acceleration (indices 45, 46) ---
         wrist_vel = 0.0
         wrist_accel = 0.0
-
         if prev_wrist_dist_l is not None:
             vel_l = (dist_l - prev_wrist_dist_l) / dt
             vel_r = (dist_r - prev_wrist_dist_r) / dt
@@ -94,12 +118,19 @@ def evaluate_video(video_path, ground_truth, model, detector, cfg, device, thres
 
             prev_wrist_vel_l = vel_l
             prev_wrist_vel_r = vel_r
-
         prev_wrist_dist_l = dist_l
         prev_wrist_dist_r = dist_r
+        x[45] = wrist_vel
+        x[46] = wrist_accel
 
-        # Add interaction features
-        x, m = add_interaction_features(x, m, wrist_vel, wrist_accel)
+        # --- log_scale derivative for approach_rate (index 48) ---
+        dlog_scale_dt = 0.0
+        if prev_log_scale is not None:
+            dlog_scale_dt = (log_scale - prev_log_scale) / dt
+        prev_log_scale = log_scale
+
+        # Add interaction features (approach_rate uses dlog_scale_dt + trans_signed_torso)
+        x, m = add_interaction_features(x, m, wrist_vel, wrist_accel, dlog_scale_dt)
 
         xm = np.concatenate([x, m], axis=0).astype(np.float32)
         buf.append(xm)

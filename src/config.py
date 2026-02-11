@@ -68,6 +68,9 @@ class Config:
 #   - lower ROI decomposition now uses its own center (not torso_c) so forward
 #     leg stride is correctly classified as radial approach, not tangential
 #   - interaction features added (motion × proximity) to contextualize threat: motion only matters when close
+#   - energy_ratio_upper_lower replaced by log_scale (pose-derived apparent size; invariant to arm raises)
+#   - approach_proximity replaced by approach_rate = max(dlog_scale_dt,0) × max(trans_signed_torso,0)
+#     (size-invariant Z-approach signal; zero for distant/retreating persons)
 FEATURE_NAMES = [
     # Reliability/Metadata (9 dims) - indices 0-8
     "det_conf",
@@ -133,10 +136,10 @@ FEATURE_NAMES = [
     # Dynamics (3 dims) - indices 45-47
     "max_wrist_extension_velocity",
     "max_wrist_extension_accel",
-    "energy_ratio_upper_lower",
+    "log_scale",
 
     # Interaction features (3 dims) - indices 48-50
-    "approach_proximity",
+    "approach_rate",
     "expansion_proximity",
     "acceleration_proximity",
 ]
