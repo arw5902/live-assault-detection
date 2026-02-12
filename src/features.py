@@ -258,46 +258,65 @@ def build_features(
     max_wrist_vel = 0.0
     max_wrist_accel = 0.0
 
-    # Robust scale: minimum of pose-based apparent size estimates in pixels.
-    # More stable than bbox area because it is invariant to arm raises and partial pose changes.
-    # Each estimate is un-normalized (raw pixels), so log_scale is independent of torso_s.
-    # We take the MINIMUM across available estimates:
-    #   - No single keypoint distance is reliable alone (noisy keypoints can inflate one estimate)
-    #   - min() picks the most conservative value, resisting upward outliers
-    #   - A spuriously large torso_height_px (noisy hip/shoulder keypoint) does not inflate log_scale
-    #   - All three estimates are invariant to arm raises, so min() doesn't lose arm-raise robustness
+    # Robust scale (distance proxy): use torso height only (mid-shoulder to mid-hip) when available.
     #
-    # Facing-camera guard for lateral widths:
-    #   shoulder_width and hip_width are lateral distances that collapse to near zero when the
-    #   person turns sideways or away. Including them in that state would cause a spurious drop
-    #   in log_scale and a noisy dlog_scale_dt spike. We therefore only include them when both
-    #   eyes are visible — a reliable proxy for the person facing toward the camera.
-    both_eyes_visible = (kp_valid(kps, COCO17["l_eye"], cfg.kp_conf_thresh) and
-                         kp_valid(kps, COCO17["r_eye"], cfg.kp_conf_thresh))
+    # Rationale:
+    #   Using lateral widths (shoulder/hip width) inside the distance proxy can create false "approach"
+    #   spikes when a person turns from sideways to front-facing (width increases without true distance change).
+    #   Torso height is far less sensitive to yaw and arm pose, so it is a safer scale cue for software-only
+    #   proximity estimation on body-cam video.
+    #
+    # Notes:
+    #   Torso height can still change with strong pitch / bending / crouching. Downstream, treat dlog_scale_dt
+    #   as a soft cue and rely on visibility + articulation features to avoid false positives.
+    # Torso-scale reliability gating:
+    #   Neck/shoulder->hip scale can become unreliable when the person bends forward (foreshortening),
+    #   when hips are truncated/cropped near the bottom border, or when hip keypoints jitter/shift.
+    #   In those cases we mark log_scale invalid (v_log_scale=0) so FeatureState will carry-forward
+    #   the last reliable scale instead of letting proximity features spike.
+    has_sh = kp_valid(kps, COCO17["l_shoulder"], cfg.kp_conf_thresh) and kp_valid(kps, COCO17["r_shoulder"], cfg.kp_conf_thresh)
+    has_hp = kp_valid(kps, COCO17["l_hip"], cfg.kp_conf_thresh) and kp_valid(kps, COCO17["r_hip"], cfg.kp_conf_thresh)
 
-    scale_estimates = []
-    if both_eyes_visible and v_sh_w > 0.5:
-        scale_estimates.append(d_sh_w * norm)           # shoulder width in pixels (face-forward only)
-    if both_eyes_visible and v_hip_w > 0.5:
-        scale_estimates.append(d_hip_w * norm)          # hip width in pixels (face-forward only)
-    # has_sh / has_hp already computed above for torso_compression — reuse here
+    # Default
+    log_scale = 0.0
+    v_log_scale = 0.0
+
     if has_sh and has_hp:
         sh_pt = (get_point(kps, COCO17["l_shoulder"]) + get_point(kps, COCO17["r_shoulder"])) / 2.0
         hp_pt = (get_point(kps, COCO17["l_hip"]) + get_point(kps, COCO17["r_hip"])) / 2.0
-        torso_height_px = float(np.linalg.norm(sh_pt - hp_pt))
-        if torso_height_px > 5.0:
-            scale_estimates.append(torso_height_px)     # torso height always included (stable under rotation)
+        torso_vec = hp_pt - sh_pt
+        torso_height_px = float(np.linalg.norm(torso_vec))
 
-    if len(scale_estimates) > 0:
-        robust_scale = float(min(scale_estimates))
-        log_scale = float(np.log(max(robust_scale, 1.0)))
-        v_log_scale = 1.0
+        # Reliability tests
+        # 1) Hips too close to bottom border (likely truncated / unstable).
+        bottom_margin_px = float(max(8.0, 2.0 * cfg.crop_eps * h))
+        hip_near_bottom = bool(hp_pt[1] >= (h - bottom_margin_px))
+
+        # 2) Strong forward bend / pitch causes foreshortening: torso segment becomes far from vertical.
+        #    Compute tilt from vertical axis (0=vertical).
+        if torso_height_px > 1e-3:
+            v_unit = torso_vec / torso_height_px
+            # vertical axis is (0,1); clamp dot for numerical stability
+            dot = float(np.clip(v_unit[1], -1.0, 1.0))
+            tilt_rad = float(np.arccos(abs(dot)))
+            tilt_deg = tilt_rad * (180.0 / np.pi)
+        else:
+            tilt_deg = 90.0
+
+        bend_like = bool(tilt_deg > 35.0)
+
+        if (torso_height_px > 5.0) and (not hip_near_bottom) and (not bend_like):
+            log_scale = float(np.log(max(torso_height_px, 1.0)))
+            v_log_scale = 1.0
+        else:
+            # Keep a value (so debug shows it), but mark invalid so the imputer carries forward.
+            log_scale = float(np.log(max(torso_height_px, 1.0))) if torso_height_px > 1.0 else 0.0
+            v_log_scale = 0.0
     else:
-        # Fallback to sqrt(bbox_area) when no keypoints available
+        # Fallback to sqrt(bbox_area) when torso keypoints are not available
         x1b, y1b, x2b, y2b = bbox
         log_scale = float(np.log(max(np.sqrt((x2b - x1b) * (y2b - y1b)), 1.0)))
         v_log_scale = 0.0  # mark as unreliable fallback
-
     # Assemble feature vector (values) + validity mask for pose/flow parts
     # Note: bbox features validity depends on cropping.
     bbox_valid = 0.0 if anyc else 1.0
