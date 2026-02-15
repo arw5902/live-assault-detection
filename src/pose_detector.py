@@ -1,12 +1,16 @@
 import numpy as np
 from ultralytics import YOLO
+from .config import Config
 
 class PoseDetector:
-    def __init__(self):
-        self.model = YOLO("models/yolov8m-pose.pt")
+    def __init__(self, cfg: Config = None):
+        if cfg is None:
+            cfg = Config()
+        self.cfg = cfg
+        self.model = YOLO(cfg.yolo_pt_path)
 
     def infer(self, frame):
-        r = self.model(frame, conf=0.25, iou=0.5, verbose=False)[0]
+        r = self.model(frame, conf=self.cfg.yolo_conf, iou=self.cfg.yolo_iou, verbose=False)[0]
         if len(r.boxes) == 0:
             return None
 

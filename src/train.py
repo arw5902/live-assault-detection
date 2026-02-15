@@ -6,6 +6,7 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset, DataLoader
 import torch.nn.functional as F
+from sklearn.metrics import precision_recall_fscore_support, accuracy_score
 from .config import Config, FEATURE_NAMES
 from .dataset import build_dataset_per_video  # Video-level data for proper train/val split
 from .model import HazardGRU
@@ -59,7 +60,7 @@ def main():
     print()
 
     cfg = Config()
-    detector = PoseDetector()
+    detector = PoseDetector(cfg)
 
     # Build dataset per video (prevents data leakage)
     video_data = build_dataset_per_video(detector, cfg)
@@ -203,8 +204,10 @@ def main():
 
     # Save metadata for inference
     os.makedirs("outputs/checkpoints", exist_ok=True)
+    model_filename = f"hazard_gru_{timestamp}.pt"
+    model_path = f"outputs/checkpoints/{model_filename}"
     with open("outputs/checkpoints/meta.json", "w") as f:
-        json.dump({"input_dim": int(input_dim), "best_threshold": 0.35}, f)  # Will be updated during training
+        json.dump({"input_dim": int(input_dim), "best_threshold": 0.50, "model_file": model_filename}, f)  # best_threshold updated whenever a new best F1 is found
 
     model = HazardGRU(input_dim=input_dim, hidden=cfg.gru_hidden, dropout=cfg.dropout)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -249,7 +252,7 @@ def main():
 
     best_val_loss = 1e9
     global_best_f1 = 0.0
-    global_best_thresh = 0.35
+    global_best_thresh = 0.50
     best_f1_epoch = 0
 
     for epoch in range(cfg.epochs):
@@ -292,16 +295,14 @@ def main():
                     all_preds.extend(pred)
                     all_labels.extend(yb.numpy())
 
-            from sklearn.metrics import precision_recall_fscore_support, accuracy_score
-
             # Tune threshold for best F1 score (extended range to include higher thresholds)
             thresholds = [0.15, 0.20, 0.25, 0.30, 0.35, 0.40, 0.45, 0.50, 0.55, 0.60, 0.65, 0.70, 0.75, 0.80]
             best_f1 = 0.0
             best_thresh = 0.30
-            best_metrics = None
+            best_metrics = (0.0, 0.0, 0.0, 0.0)  # (acc, prec, rec, f1) fallback
 
+            y_true = (np.array(all_labels) >= 0.5).astype(int)
             for thresh in thresholds:
-                y_true = (np.array(all_labels) >= 0.5).astype(int)
                 y_pred = (np.array(all_preds) >= thresh).astype(int)
 
                 acc = accuracy_score(y_true, y_pred)
@@ -321,7 +322,7 @@ def main():
                 best_f1_epoch = epoch + 1
 
                 # Save model checkpoint based on best F1
-                torch.save(model.state_dict(), "outputs/checkpoints/hazard_gru.pt")
+                torch.save(model.state_dict(), model_path)
 
                 # Update meta.json with best threshold
                 with open("outputs/checkpoints/meta.json", "r") as f:
@@ -344,7 +345,7 @@ def main():
     print(f"Training completed at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"Best validation loss: {best_val_loss:.4f}")
     print(f"Best F1 score: {global_best_f1:.3f} at threshold {global_best_thresh:.2f} (epoch {best_f1_epoch})")
-    print(f"Model saved to: outputs/checkpoints/hazard_gru.pt (based on best F1)")
+    print(f"Model saved to: {model_path} (based on best F1)")
     print("=" * 80)
 
     # Compute feature importance using permutation importance
@@ -353,9 +354,7 @@ def main():
     print("=" * 80)
 
     # Load best model for feature importance computation
-    model.load_state_dict(torch.load("outputs/checkpoints/hazard_gru.pt"))
-    model.to(device)
-    model.eval()
+    model.load_state_dict(torch.load(model_path))
 
     # Compute permutation importance
     importances, baseline_f1 = compute_permutation_importance(

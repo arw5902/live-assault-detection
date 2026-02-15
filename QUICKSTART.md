@@ -64,7 +64,8 @@ t=0.90s hazard=0.912 level=CRITICAL dbg={...}
 # 2. Run training
 python -m src.train
 
-# Output: outputs/checkpoints/hazard_gru.pt
+# Output: outputs/checkpoints/hazard_gru_YYYYMMDD_HHMMSS.pt
+#         outputs/checkpoints/meta.json  (stores model filename + best threshold)
 ```
 
 ### Evaluation (if you have holdout data)

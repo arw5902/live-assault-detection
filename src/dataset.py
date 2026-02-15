@@ -76,11 +76,11 @@ def extract_sequences(video_path: str, label_mode: str, detector, cfg) -> Tuple[
         d2[2:] = (d1[2:] - d1[1:-1]) / dt
     X[:, 10] = d1
     X[:, 11] = d2
-    # Update masks: frame 0 has no prior → dlog_area_dt invalid; frame 0-1 → d2 invalid
-    if len(d1) >= 1:
+    # Update masks: frame 0 has no prior → dlog_area_dt invalid; frames 0-1 → d2 invalid
+    if len(log_area) >= 2:
         M[1:, 10] = 1.0   # valid from frame 1 onward
         M[0, 10] = 0.0    # frame 0 has no derivative
-    if len(d2) >= 2:
+    if len(log_area) >= 3:
         M[2:, 11] = 1.0   # valid from frame 2 onward
         M[:2, 11] = 0.0   # frames 0-1 have no second derivative
 
@@ -113,8 +113,7 @@ def extract_sequences(video_path: str, label_mode: str, detector, cfg) -> Tuple[
         M[:2, 46] = 0.0
 
     # Compute dlog_scale_dt from pose-derived log_scale at index 47
-    # log_scale is the log of the minimum of {shoulder_width_px, hip_width_px, torso_height_px}
-    # (lateral widths only included when both eyes visible; torso_height always included)
+    # log_scale is derived from torso height (mid-shoulder to mid-hip) with reliability gating.
     # Its temporal derivative measures the rate of apparent size growth — invariant to person
     # physical size because it uses rate of change, not absolute size.
     log_scale = X[:, 47]

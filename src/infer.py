@@ -1,3 +1,4 @@
+import sys
 import json
 import numpy as np
 import torch
@@ -16,15 +17,16 @@ def main(video_path: str):
     set_seed(seed=42, deterministic=True)
 
     cfg = Config()
-    detector = PoseDetector()
+    detector = PoseDetector(cfg)
     tracker = SingleTargetTracker()
 
     # Load model metadata and checkpoint
-    checkpoint = "outputs/checkpoints/hazard_gru.pt"
     with open("outputs/checkpoints/meta.json") as f:
         meta = json.load(f)
         input_dim = meta["input_dim"]
         early_thresh = meta.get("best_threshold", cfg.early_thresh)  # Use tuned threshold
+        model_file = meta.get("model_file", "hazard_gru.pt")
+    checkpoint = f"outputs/checkpoints/{model_file}"
 
     print(f"Using detection threshold: {early_thresh:.2f} (optimized from training)")
     print("Deterministic mode: ON (reproducible optical flow sampling)")
@@ -45,17 +47,21 @@ def main(video_path: str):
     prev_wrist_vel_l = 0.0
     prev_wrist_vel_r = 0.0
 
-    # Track log_area for dlog_area_dt / d2log_area_dt2 (indices 10, 11)
+    # Track log_area for dlog_area_dt / d2log_area_dt2 (indices 10, 11).
     # build_features() leaves these as 0.0 placeholders; dataset.py fills them from the full
     # sequence. We must replicate that here frame-by-frame to avoid a train/eval mismatch.
     prev_log_area = None
-    prev_dlog_area_dt = 0.0
+    prev_dlog_area_dt = None
 
     # Track log_scale for dlog_scale_dt computation (approach_rate)
     prev_log_scale = None
     dt = cfg.step_dt
 
     cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        print(f"Error: cannot open video: {video_path}")
+        return
+
     frame_idx = 0
     while True:
         ok, frame = cap.read()
@@ -87,14 +93,22 @@ def main(video_path: str):
         # --- log_area derivatives (indices 10, 11) ---
         dlog_area_dt = 0.0
         d2log_area_dt2 = 0.0
-        have_log_area_deriv = prev_log_area is not None
+        have_log_area_deriv = prev_log_area is not None   # valid from frame 1
         if have_log_area_deriv:
             dlog_area_dt = (log_area - prev_log_area) / dt
-            d2log_area_dt2 = (dlog_area_dt - prev_dlog_area_dt) / dt
+            # Only compute 2nd derivative if previous dlog_area_dt is real
+            if prev_dlog_area_dt is not None:
+                d2log_area_dt2 = (dlog_area_dt - prev_dlog_area_dt) / dt
+            else:
+                # First valid frame after init/reset → safe neutral value
+                d2log_area_dt2 = 0.0
+        # Update state AFTER computing derivatives
         prev_log_area = log_area
         prev_dlog_area_dt = dlog_area_dt
+        # Store features
         x[10] = dlog_area_dt
         x[11] = d2log_area_dt2
+        # Keep mask stable (matches evaluate.py behaviour)
         m[10] = 1.0 if have_log_area_deriv else 0.0
         m[11] = 1.0 if have_log_area_deriv else 0.0
 
@@ -113,6 +127,11 @@ def main(video_path: str):
 
             prev_wrist_vel_l = vel_l
             prev_wrist_vel_r = vel_r
+        else:
+            # Reset cached velocities so a reappearing wrist doesn't produce a
+            # spurious acceleration spike from stale state.
+            prev_wrist_vel_l = 0.0
+            prev_wrist_vel_r = 0.0
         prev_wrist_dist_l = dist_l
         prev_wrist_dist_r = dist_r
         x[45] = wrist_vel
@@ -159,5 +178,4 @@ def main(video_path: str):
     cap.release()
 
 if __name__ == "__main__":
-    import sys
     main(sys.argv[1])

@@ -32,7 +32,7 @@ The system achieves 94.6% detection rate with 62.9% pre-contact warning rate and
 - **Multi-level Alerts**: Three escalating warning levels
 - **High Accuracy**: 94.6% detection rate, 0% false positives on safe videos
 - **Early Warning**: Mean lead time of 2.4 frames (0.24s) before contact
-- **Pose-based Features**: 30-dimensional feature vector from body keypoints
+- **Pose-based Features**: 51-dimensional feature vector from body keypoints and optical flow
 - **Optical Flow Analysis**: Radial/tangential motion decomposition
 - **Temporal Modeling**: GRU neural network for sequence analysis
 
@@ -177,7 +177,7 @@ Edit `src/config.py` to customize parameters:
 ```python
 # Model window
 window_len: int = 5              # 0.5s temporal window
-safe_window_stride: int = 5      # Stride for safe videos
+safe_window_stride: int = 3      # Stride for safe videos
 attack_window_stride: int = 1    # Stride for attack videos (preserves coherence)
 
 # Focal Loss
@@ -202,12 +202,12 @@ critical_thresh: float = 0.80    # CRITICAL warning
 ### Training Pipeline
 
 1. **Data Loading**: Videos processed at 10 FPS with pose detection
-2. **Feature Extraction**: 30-dimensional features per frame
-3. **Windowing**: 5-frame sliding windows (safe: stride=5, attack: stride=1)
+2. **Feature Extraction**: 51-dimensional features per frame (+ 51 validity masks = 102-dim input)
+3. **Windowing**: 5-frame sliding windows (safe: stride=3, attack: stride=1)
 4. **Video-level Split**: 85% train, 15% validation (no data leakage)
 5. **Training**: Focal Loss optimization for 40 epochs
 6. **Threshold Tuning**: Sweep [0.15-0.80] to maximize F1 score
-7. **Model Saving**: Best model saved based on F1 score
+7. **Model Saving**: Best model saved based on F1 score with timestamp filename
 
 ### Training Command
 
@@ -251,10 +251,11 @@ Best F1 score: 0.833 at threshold 0.55 (epoch 37)
 ```
 outputs/
 ├── checkpoints/
-│   ├── hazard_gru.pt          # Best model weights
-│   └── meta.json              # Model metadata (input_dim, best_threshold)
+│   ├── hazard_gru_20260204_151139.pt  # Best model weights (timestamped)
+│   └── meta.json                      # Model metadata (input_dim, best_threshold, model_file)
 └── logs/
-    └── train_20260204_151139.log
+    ├── train_20260204_151139.log
+    └── feature_importance_20260204_151139.json
 ```
 
 ## 📊 Evaluation
@@ -311,28 +312,34 @@ CRITICAL Warning Rate: 97.1% (34/35 detected attacks)
 ```
 Pre-contactDetection/
 ├── src/
-│   ├── config.py              # Configuration parameters
+│   ├── config.py              # Configuration parameters + FEATURE_NAMES
 │   ├── model.py               # GRU model definition
 │   ├── dataset.py             # Dataset building and windowing
 │   ├── train.py               # Training script with Focal Loss
 │   ├── evaluate.py            # Holdout evaluation
 │   ├── infer.py               # Real-time inference
 │   ├── pose_detector.py       # YOLOv8 pose detection wrapper
-│   ├── features.py            # Feature extraction (pose + flow)
+│   ├── features.py            # Feature extraction (pose + flow, 51-dim)
 │   ├── flow.py                # Optical flow computation
 │   ├── tracker.py             # Simple bounding box tracker
 │   ├── pose_utils.py          # Pose keypoint utilities
+│   ├── feature_importance.py  # Permutation importance evaluation
+│   ├── utils.py               # Seed management utilities
 │   └── video_io.py            # Video reading utilities
 ├── data/
 │   ├── safe/                  # Training safe videos
 │   └── attack/                # Training attack videos (trimmed)
+├── holdout/
+│   ├── labels.json            # Ground truth annotations
+│   ├── safe/                  # Holdout safe videos
+│   └── attack/                # Holdout attack videos
 ├── models/
-│   └── yolov8m-pose.pt       # YOLOv8-Pose weights
+│   └── yolov8m-pose.pt        # YOLOv8-Pose weights
 ├── outputs/
-│   ├── checkpoints/           # Model checkpoints
-│   └── logs/                  # Training/evaluation logs
+│   ├── checkpoints/           # Model checkpoints (timestamped)
+│   └── logs/                  # Training/evaluation/importance logs
 ├── docs/
-│   └── DESIGN.md             # Detailed design specification
+│   └── DESIGN.md              # Detailed design specification
 ├── README.md                  # This file
 ├── requirements.txt           # Python dependencies
 └── .gitignore
@@ -363,10 +370,10 @@ Pre-contactDetection/
 
 | Parameter | Value |
 |-----------|-------|
-| Input Features | 30 dimensions |
+| Input Features | 51 dimensions (+ 51 validity masks = 102-dim input) |
 | Window Length | 5 frames (0.5s) |
 | GRU Hidden Units | 64 |
-| Total Parameters | ~160,995 |
+| Total Parameters | ~24K |
 | Inference Speed | ~10 FPS (CPU) |
 | Model Size | <1 MB |
 
@@ -374,7 +381,7 @@ Pre-contactDetection/
 
 - **[DESIGN.md](docs/DESIGN.md)**: Comprehensive design specification
   - System architecture
-  - Feature engineering details
+  - Feature engineering details (51 features + 51 validity masks)
   - Model architecture
   - Training methodology
   - Algorithm details

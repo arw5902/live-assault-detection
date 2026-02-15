@@ -38,7 +38,7 @@ Develop a real-time system capable of detecting assault behavior **before physic
 The system combines:
 1. **Pose Estimation**: YOLOv8-Pose for body keypoint detection
 2. **Optical Flow**: Lucas-Kanade for motion analysis
-3. **Feature Engineering**: 30-dimensional feature vector
+3. **Feature Engineering**: 51-dimensional feature vector (+ 51 validity masks = 102-dim model input)
 4. **Temporal Modeling**: GRU neural network for sequence classification
 5. **Multi-level Alerts**: Three escalating warning thresholds
 
@@ -108,10 +108,15 @@ The system combines:
                            │
                            ▼
 ┌─────────────────────────────────────────────────────────────┐
-│              FEATURE EXTRACTION (30-dim)                     │
-│  • Pose features: angles, distances, positions (18)         │
-│  • Flow features: radial/tangential motion (6)              │
-│  • Context features: bbox, crop, tracking (6)               │
+│              FEATURE EXTRACTION (51-dim)                     │
+│  • Reliability/metadata: det_conf, kp stats, crop (9)       │
+│  • Bbox/approach: log_area, derivatives, center, vel (8)    │
+│  • Upper body pose: wrist/elbow distances and angles (8)    │
+│  • Lower body pose: knee/ankle distances and stance (7)     │
+│  • Optical flow: torso/lower ROI + background (10)          │
+│  • Posture: torso compression, wrist asym, face vis (3)     │
+│  • Dynamics: wrist vel/accel, log_scale (3)                 │
+│  • Interaction: approach_rate, expansion, accel (3)         │
 └──────────────────────────┬──────────────────────────────────┘
                            │
                            ▼
@@ -119,7 +124,7 @@ The system combines:
 │                 TEMPORAL WINDOWING                           │
 │  • Sliding window: 5 frames (0.5s)                          │
 │  • Buffer: deque with maxlen=5                              │
-│  • Input shape: [1, 5, 60] (features + mask)                │
+│  • Input shape: [1, 5, 102] (51 features + 51 masks)        │
 └──────────────────────────┬──────────────────────────────────┘
                            │
                            ▼
@@ -157,15 +162,17 @@ The system combines:
 ```
 Video Files (MP4)
     ↓
-Extract Frames @ 10 FPS
+Extract Frames @ 10 FPS (frame_stride=3)
     ↓
 Pose Detection (YOLOv8)
     ↓
-Feature Extraction (30-dim per frame)
+Feature Extraction (51-dim per frame) + Validity Masks (51-dim)
+    ↓
+Post-processing: fill dlog_area_dt, d2log_area_dt2, wrist derivatives
     ↓
 Sliding Windows (5 frames, stride varies)
     ↓
-Dataset: [N, 5, 60] windows
+Dataset: [N, 5, 102] windows  (51 features + 51 masks concatenated)
     ↓
 Video-Level Train/Val Split (85/15)
     ↓
@@ -175,7 +182,7 @@ GRU Model Training (Focal Loss)
     ↓
 Threshold Tuning (maximize F1)
     ↓
-Save Best Model + Threshold
+Save Best Model (timestamped) + Threshold in meta.json
 ```
 
 #### Inference Data Flow
@@ -186,13 +193,17 @@ Pose Detection → 17 keypoints
     ↓
 Tracking → Consistent bbox
     ↓
-Feature Extraction → 30-dim vector
+Feature Extraction → 51-dim vector + 51-dim mask
     ↓
-Add to Window Buffer (deque)
+Fill temporal derivatives frame-by-frame (dlog_area_dt, wrist vel/accel)
+    ↓
+Add interaction features → 51-dim final vector
+    ↓
+Add to Window Buffer (deque, maxlen=5)
     ↓
 If buffer full (5 frames):
     ↓
-GRU Inference → hazard score
+GRU Inference → hazard score  [input: 1×5×102]
     ↓
 EMA Smoothing
     ↓
@@ -231,7 +242,8 @@ Alert Level Output
 ┌────────────────────────────────────────────────────────┐
 │                  src/features.py                        │
 │  Feature extraction from pose + flow                   │
-│  • build_features() → 30-dim vector + mask             │
+│  • build_features() → 48-dim vector + mask (base)      │
+│  • add_interaction_features() → 51-dim final           │
 │  • FeatureState: carry-forward imputation              │
 └────────────────────────────────────────────────────────┘
 
@@ -279,184 +291,371 @@ Alert Level Output
 
 ### 3.1 Feature Vector Overview
 
-The system extracts a **30-dimensional feature vector** per frame, combining pose-based geometric features and optical flow-based motion features.
+The system extracts a **51-dimensional feature vector** per frame. Each feature has a corresponding validity mask, giving a **102-dimensional model input** ([features ∥ masks]).
 
 ```
-Feature Vector (30 dimensions):
-├── Pose Features (18 dims)
-│   ├── Arm angles (3 dims): l_arm, r_arm, min_arm
-│   ├── Wrist positions (3 dims): l_wrist_raised, r_wrist_raised, max_wrist_raised
-│   ├── Torso (2 dims): torso_scale, squared_up
-│   ├── Spatial (4 dims): approach_speed, approach_accel, lateral_speed, min_distance
-│   └── Confidence (6 dims): det_conf, kp_conf_mean, kp_conf_min, visible_kp, track_age, lost
-├── Flow Features (6 dims)
-│   ├── Person flow (2 dims): person_flow_mag, person_flow_dir_std
-│   ├── Background flow (2 dims): bg_flow_mag, bg_flow_dir_std
-│   └── Radial/Tangential (2 dims): radial_ratio, div_positive_mean
-└── Context Features (6 dims)
-    ├── Bbox (5 dims): log_area, dlog_area_dt, d2log_area_dt2, cx_vel, cy_vel
-    └── Cropping (1 dim): any_crop_flag
+Feature Vector (51 dimensions):
+├── Reliability / Metadata (9 dims)      indices 0-8
+│   det_conf, kp_conf_mean, kp_conf_min, visible_kp_count,
+│   anyc, crop_left, crop_right, crop_top, crop_bottom
+│
+├── Bbox / Approach (8 dims)             indices 9-16
+│   log_area, dlog_area_dt*, d2log_area_dt2*,
+│   bbox_center_x, bbox_center_y, bbox_center_vx, bbox_center_vy, bbox_aspect
+│
+├── Upper Body Geometry (8 dims)         indices 17-24
+│   dist_l_wrist_l_shoulder, dist_r_wrist_r_shoulder,
+│   dist_l_wrist_torso, dist_r_wrist_torso,
+│   shoulder_width, hip_width, angle_l_elbow, angle_r_elbow
+│
+├── Lower Body Geometry (7 dims)         indices 25-31
+│   angle_l_knee, angle_r_knee,
+│   dist_l_ankle_l_hip, dist_r_ankle_r_hip,
+│   dist_l_ankle_torso, dist_r_ankle_torso, stance_width
+│
+├── Optical Flow – Torso ROI (4 dims)    indices 32-35
+│   translation_signed_torso, translation_torso,
+│   divergence_torso, div_ratio_torso
+│
+├── Optical Flow – Lower ROI (4 dims)    indices 36-39
+│   translation_signed_lower, translation_lower,
+│   divergence_lower, div_ratio_lower
+│
+├── Optical Flow – Background (2 dims)   indices 40-41
+│   bg_flow_coherence, flow_ok
+│
+├── Posture (3 dims)                     indices 42-44
+│   torso_compression_ratio, wrist_height_asymmetry, face_visibility
+│
+├── Dynamics (3 dims)                    indices 45-47
+│   max_wrist_extension_velocity, max_wrist_extension_accel, log_scale
+│
+└── Interaction Features (3 dims)        indices 48-50
+    approach_rate, expansion_proximity, acceleration_proximity
 
-Mask Vector (30 dimensions):
-└── Validity flags (0 or 1) indicating if feature is valid or imputed
+* dlog_area_dt (index 10) and d2log_area_dt2 (index 11) are 0.0 placeholders in
+  build_features(); filled from frame history by dataset.py / evaluate.py / infer.py.
+* max_wrist_extension_velocity (index 45) and max_wrist_extension_accel (index 46)
+  are likewise 0.0 placeholders filled from frame history.
+
+Mask Vector (51 dimensions): validity flags (1 = valid, 0 = invalid/imputed)
+Model Input = [features ∥ masks] → 102 dimensions
 ```
 
 ### 3.2 Detailed Feature Descriptions
 
-#### 3.2.1 Pose Features (18 dimensions)
+#### 3.2.1 Reliability / Metadata (9 dims, indices 0–8)
 
-**Arm Angles (3 dims)**
+Detection quality indicators that tell the GRU how much to trust the other features in this frame.
+
 ```python
-# Left arm angle: shoulder-elbow-wrist
-l_arm_angle = angle(l_shoulder, l_elbow, l_wrist)  # radians
-
-# Right arm angle: shoulder-elbow-wrist
-r_arm_angle = angle(r_shoulder, r_elbow, r_wrist)  # radians
-
-# Minimum arm angle (most bent)
-min_arm_angle = min(l_arm_angle, r_arm_angle)
+det_conf         # YOLOv8 detection confidence [0,1]
+kp_conf_mean     # Mean keypoint confidence [0,1]
+kp_conf_min      # Min keypoint confidence [0,1]
+visible_kp_count # Count of keypoints above confidence threshold [0,17]
+anyc             # 1 if bbox touches any frame edge (cropped)
+crop_left        # 1 if bbox touches left edge
+crop_right       # 1 if bbox touches right edge
+crop_top         # 1 if bbox touches top edge
+crop_bottom      # 1 if bbox touches bottom edge
 ```
-*Rationale*: Bent arms (small angle) often precede strikes. Extended arms (large angle) may indicate pushing or grabbing.
+*Rationale*: Reliability flags allow the GRU to down-weight detections with low confidence or heavy cropping, which frequently occur just before contact.
 
-**Wrist Positions (3 dims)**
+#### 3.2.2 Bbox / Approach (8 dims, indices 9–16)
+
+The size, position, and motion of the person's bounding box — the primary proximity and approach signal that requires no pose keypoints.
+
 ```python
-# Wrist raised above shoulder?
-l_wrist_raised = 1 if l_wrist.y < l_shoulder.y else 0
-r_wrist_raised = 1 if r_wrist.y < r_shoulder.y else 0
-max_wrist_raised = max(l_wrist_raised, r_wrist_raised)
+log_area         # log(bbox_width × bbox_height) — more stable than raw area
+dlog_area_dt     # d(log_area)/dt — bbox growth rate (approach speed proxy)
+d2log_area_dt2   # d²(log_area)/dt² — bbox growth acceleration
+bbox_center_x    # Normalised bbox centre x [0,1]
+bbox_center_y    # Normalised bbox centre y [0,1]
+bbox_center_vx   # Bbox centre x velocity (frame-to-frame)
+bbox_center_vy   # Bbox centre y velocity (frame-to-frame)
+bbox_aspect      # bbox_width / bbox_height
 ```
-*Rationale*: Raised wrists indicate wind-up for overhead strikes.
+*Note*: `dlog_area_dt` (index 10) and `d2log_area_dt2` (index 11) are 0.0 placeholders in `build_features()`; filled from frame history by `dataset.py` / `evaluate.py` / `infer.py`.
 
-**Torso Features (2 dims)**
+*Rationale*: Expanding bbox (`dlog_area_dt > 0`) is the simplest approach signal. Acceleration distinguishes sudden rushes from slow walks.
+
+#### 3.2.3 Upper Body Geometry (8 dims, indices 17–24)
+
+Normalised skeletal distances and joint angles describing arm configuration — captures punch, grab, and strike wind-up postures.
+
 ```python
-# Torso scale: distance between shoulder midpoint and hip midpoint
-torso_scale = norm(shoulder_midpoint - hip_midpoint)  # pixels
-
-# Squared up: person facing camera (shoulders aligned horizontally)
-shoulder_angle = abs(atan2(r_shoulder.y - l_shoulder.y,
-                           r_shoulder.x - l_shoulder.x))
-squared_up = 1 if shoulder_angle < threshold else 0
+dist_l_wrist_l_shoulder  # Left wrist–shoulder distance (normalised)
+dist_r_wrist_r_shoulder  # Right wrist–shoulder distance
+dist_l_wrist_torso       # Left wrist–torso-centre distance
+dist_r_wrist_torso       # Right wrist–torso-centre distance
+shoulder_width           # Shoulder–shoulder distance
+hip_width                # Hip–hip distance
+angle_l_elbow            # Left elbow angle (shoulder–elbow–wrist, radians)
+angle_r_elbow            # Right elbow angle
 ```
-*Rationale*: Torso scale indicates proximity to camera. Squared-up stance is common attack posture.
+*Rationale*: Wrist extension (large dist_wrist_torso) and bent elbows (small angle) are common pre-strike signatures. Shoulder width provides a body-size normaliser.
 
-**Spatial Features (4 dims)**
+#### 3.2.4 Lower Body Geometry (7 dims, indices 25–31)
+
+Normalised leg joint angles and ankle distances describing lower-body stance — captures charging, kicking, and lunging preparation.
+
 ```python
-# Approach speed: rate of change of torso_scale
-approach_speed = d(torso_scale) / dt
-
-# Approach acceleration: rate of change of approach_speed
-approach_accel = d(approach_speed) / dt
-
-# Lateral speed: horizontal movement of torso center
-lateral_speed = abs(d(torso_center.x) / dt)
-
-# Minimum distance: closest keypoint to camera (max torso_scale)
-min_distance = max(torso_scale)  # proxy for proximity
+angle_l_knee         # Left knee angle (hip–knee–ankle, radians)
+angle_r_knee         # Right knee angle
+dist_l_ankle_l_hip   # Left ankle–hip distance
+dist_r_ankle_r_hip   # Right ankle–hip distance
+dist_l_ankle_torso   # Left ankle–torso-centre distance
+dist_r_ankle_torso   # Right ankle–torso-centre distance
+stance_width         # Ankle–ankle distance
 ```
-*Rationale*: Rapid approach with acceleration indicates aggressive behavior.
+*Rationale*: Bent knees and wide stance indicate charging or lunging preparation. Ankle–torso distance captures leg extension toward the officer.
 
-**Confidence Features (6 dims)**
+#### 3.2.5 Optical Flow – Torso ROI (4 dims, indices 32–35)
+
+Translation-decomposed flow features for the upper-body region — separately quantifies how fast the torso is approaching the camera (translation) and how much the upper body is expanding within the frame (divergence).
+
 ```python
-# Detection confidence from YOLOv8
-det_conf = yolo_detection_confidence  # [0, 1]
+# See Section 3.3 for the full algorithm. Summary:
+#   1. Background flow subtracted from ROI flow (camera-motion compensation)
+#   2. Median of compensated ROI flow = translational component (v_med)
+#   3. Residual = compensated flow − v_med = deformation / expansion
+#   4. translation_signed: radial projection of v_med onto each point's outward dir
+#   5. divergence: mean positive radial of residual (pure expansion signal)
+#   6. div_ratio: divergence / (divergence + mean_residual_mag + ε)
 
-# Keypoint confidence statistics
-kp_conf_mean = mean(keypoint_confidences)  # [0, 1]
-kp_conf_min = min(keypoint_confidences)    # [0, 1]
-visible_kp = count(kp_conf >= threshold)   # [0, 17]
-
-# Tracking statistics
-track_age = frames_since_first_detection   # ≥0
-lost = frames_since_last_detection         # ≥0
+translation_signed_torso  # Positive = approaching camera, negative = retreating
+translation_torso         # ||v_med|| — speed of translational motion
+divergence_torso          # mean(radial_resid > 0) — body expanding in frame
+div_ratio_torso           # divergence / (divergence + resid_mag + ε)
+                          #   ≈1.0 → residual is pure outward expansion
+                          #   ≈0.0 → residual is tangential / random
 ```
-*Rationale*: Low confidence or lost tracking may indicate occlusion or motion blur during attack.
+*Rationale*: `translation_signed_torso` cleanly measures the approach component; `divergence_torso` measures local body expansion (arm extension, torso lean). Separating the two avoids the naive radial decomposition's conflation of translation with expansion. See Section 3.3 for full derivation.
 
-#### 3.2.2 Flow Features (6 dimensions)
+#### 3.2.6 Optical Flow – Lower ROI (4 dims, indices 36–39)
 
-**Optical Flow Computation**
+The same translation-decomposed flow analysis applied to a separate lower-body region — detects leg-driven attacks (kicks, tackles) that are invisible in the torso ROI.
+
 ```python
-# Sample points inside person bbox
-pts_person = sample_points_in_box(bbox, max_points=200)
+# Same two-stage decomposition as torso ROI (see Section 3.3),
+# but applied to a rectangle offset downward to cover hips/legs,
+# and using the lower ROI's own centre for decomposition.
 
-# Sample points outside bbox (background)
-pts_bg = sample_points_background(frame, bbox, max_points=200)
-
-# Lucas-Kanade optical flow
-p0_person, p1_person, v_person = lk_flow(prev_gray, curr_gray, pts_person)
-p0_bg, p1_bg, v_bg = lk_flow(prev_gray, curr_gray, pts_bg)
+translation_signed_lower  # Positive = legs approaching camera (kick/tackle run-up)
+translation_lower         # ||v_med|| — translational speed of lower body
+divergence_lower          # mean(radial_resid > 0) — lower body expanding in frame
+div_ratio_lower           # Expansion fraction of lower-body residual flow
 ```
+*Rationale*: Separate lower-body tracking captures kicks and tackles that produce distinct leg-forward flow patterns not visible in the torso ROI. Using the lower ROI's own centre is critical: a forward leg stride from the torso centre would appear mostly tangential, but from the lower-body centre it correctly appears as a strong outward (radial) motion. See Section 3.3.4.
 
-**Person Flow Features (2 dims)**
+#### 3.2.7 Optical Flow – Background (2 dims, indices 40–41)
+
+Camera-motion characterisation and flow validity flag — used both for background subtraction (upstream) and as context features telling the model how much camera movement is present.
+
 ```python
-# Flow magnitude (90th percentile to reduce noise)
-person_flow_mag = percentile(norm(v_person), 90)
-
-# Flow direction standard deviation (uniformity)
-person_flow_dir_std = std(atan2(v_person[:, 1], v_person[:, 0]))
+bg_flow_coherence  # mean(v_bg) / (||mean(v_bg)|| + ε)  — coherence of background motion
+flow_ok            # 1 if LK tracking succeeded for this frame, 0 otherwise
 ```
-*Rationale*: High magnitude indicates fast movement. Low std indicates coherent motion (e.g., punch).
+*Note*: Raw background flow magnitude is intentionally excluded — it was a dataset confounder (body-worn cameras from different environments had different typical background motion levels). Background vectors are subtracted from ROI flow before decomposition; `bg_flow_coherence` captures whether camera motion is translational (coherent) vs shaky.
 
-**Background Flow Features (2 dims)**
+#### 3.2.8 Posture (3 dims, indices 42–44)
+
+Body shape and orientation features that capture attack-preparation stances not expressed by raw skeletal distances alone — torso lean, arm asymmetry, and face-on orientation.
+
 ```python
-# Background flow magnitude (camera motion)
-bg_flow_mag = percentile(norm(v_bg), 90)
-
-# Background flow direction std
-bg_flow_dir_std = std(atan2(v_bg[:, 1], v_bg[:, 0]))
+torso_compression_ratio  # Ratio of torso height to width; drops when person leans forward
+wrist_height_asymmetry   # |left_wrist_y - right_wrist_y| / torso_height
+face_visibility          # Keypoint confidence of nose/eyes as proxy for face-on orientation
 ```
-*Rationale*: High background flow may indicate camera shake or panning.
+*Rationale*: Forward lean, asymmetric wrist height, and face-on orientation are common attack-preparation postures not captured by raw distances.
 
-**Radial/Tangential Decomposition (2 dims)**
+#### 3.2.9 Dynamics (3 dims, indices 45–47)
+
+Temporal derivatives of wrist extension and a pose-derived proximity estimate — captures the speed and acceleration of a strike motion, and provides a size-stable distance signal.
+
 ```python
-# Decompose person flow relative to torso center
-d = p0_person - torso_center  # vectors from center
-r = norm(d) + 1e-6
-
-# Radial component (toward/away from center)
-radial = dot(d, v_person) / r  # positive = expanding
-
-# Tangential component (perpendicular to radial)
-tangential = abs(cross(d, v_person)) / r
-
-# Radial ratio: expansion vs tangential motion
-radial_ratio = max(radial, 0) / (max(radial, 0) + tangential + 1e-6)
-
-# Divergence (positive = person expanding in view)
-div_positive_mean = mean(max(radial, 0))
+max_wrist_extension_velocity  # Max per-wrist extension speed (d(dist_wrist_torso)/dt)
+max_wrist_extension_accel     # Max per-wrist extension acceleration
+log_scale                     # log(torso_height_px) — pose-derived apparent size;
+                              #   scale-invariant to arm raises unlike log_area
 ```
-*Rationale*: High radial_ratio indicates person moving toward camera (approach). High divergence indicates expansion (getting closer).
+*Note*: `max_wrist_extension_velocity` (index 45) and `max_wrist_extension_accel` (index 46) are 0.0 placeholders in `build_features()`; filled from frame history alongside the bbox derivatives.
 
-#### 3.2.3 Context Features (6 dimensions)
+*Rationale*: Wrist velocity and acceleration capture the dynamics of a strike wind-up. `log_scale` provides a proximity estimate invariant to arm raises (unlike bbox area which grows when arms extend).
 
-**Bounding Box Features (5 dims)**
+#### 3.2.10 Interaction Features (3 dims, indices 48–50)
+
+Multiplicative combinations of motion and proximity signals — encodes the principle that the same movement is only threatening when the person is already close.
+
 ```python
-# Log area (more stable than raw area)
-log_area = log(bbox_width * bbox_height)
-
-# Area growth rate
-dlog_area_dt = d(log_area) / dt
-
-# Area acceleration
-d2log_area_dt2 = d(dlog_area_dt) / dt
-
-# Bbox center velocity
-cx_vel = d(bbox_center.x) / dt
-cy_vel = d(bbox_center.y) / dt
+approach_rate         # max(dlog_scale_dt, 0) × max(translation_signed_torso, 0)
+                      #   zero for distant persons and for retreating persons
+expansion_proximity   # divergence_torso × proximity_weight
+                      #   where proximity_weight = exp(log_scale × 0.1)
+acceleration_proximity # max_wrist_extension_accel × proximity_weight
 ```
-*Rationale*: Growing bbox area indicates approach. Center velocity indicates lateral movement.
+*Rationale*: Motion features are only threatening when the person is close. These interaction terms gate the strongest approach/strike signals by proximity, reducing false positives from distant rapid motion.
 
-**Cropping Flag (1 dim)**
-```python
-# Is bbox touching frame edge?
-left = 1 if bbox.x1 <= 0.03 * frame_width else 0
-right = 1 if bbox.x2 >= 0.97 * frame_width else 0
-top = 1 if bbox.y1 <= 0.03 * frame_height else 0
-bottom = 1 if bbox.y2 >= 0.97 * frame_height else 0
-any_crop = 1 if (left or right or top or bottom) else 0
+### 3.3 Optical Flow Algorithm: Translation-Decomposed Radial Analysis
+
+#### 3.3.1 Design Motivation
+
+Body-worn cameras create a specific optical flow problem that naive radial/tangential decomposition cannot solve cleanly.
+
+**The naive radial decomposition problem:**
+
+When a person walks directly toward the camera, every tracked point inside their bounding box generates an outward flow vector (expansion). This is the desired signal. However, the person also has a global translational component — the entire bounding box shifts downward as the person approaches (the apparent size grows *and* the bounding box centroid moves). For points on the *left* and *right* sides of the torso, a purely downward translation contributes to their tangential component (perpendicular to the radial direction), inflating the tangential term and suppressing the radial ratio. The result: a direct approach looks *less* radial than it really is, because the translational component is partly misclassified as tangential.
+
+**The fix: separate translation from expansion first.**
+
+The person's body motion in the image can be decomposed into two components:
+
+1. **Global translation** — the entire ROI moving as a rigid body (camera approaching or person walking toward camera, lateral sway, etc.)
+2. **Local deformation (expansion)** — points spreading outward from the ROI centre as the person fills more of the frame
+
+By separating these before computing the radial decomposition, each component can be measured cleanly and independently.
+
+---
+
+#### 3.3.2 Algorithm: Two-Stage Flow Decomposition
+
+**Stage 1 — Background compensation:**
+
 ```
-*Rationale*: Person near frame edge may be partially occluded.
+v_bg = LK flow of ~200 points sampled outside the person's bbox (+ margin)
+v_bg_med = median(v_bg)          # Robust estimate of camera translation
+v_roi_compensated = v_roi - v_bg_med  # Remove camera motion from ROI flow
+```
 
-### 3.3 Mask Vector
+`v_bg_med` is the median background flow vector: a robust estimate of rigid camera motion. Subtracting it from each ROI flow vector removes camera shake, panning, and walking-induced background shift before any further analysis.
+
+---
+
+**Stage 2 — Translation/expansion separation within the ROI:**
+
+After background compensation, the remaining ROI flow `v` still contains both:
+- The person's own translational motion relative to the camera (walking toward/away)
+- Local body expansion (person growing larger in frame)
+
+These are separated using the median of the compensated ROI flow:
+
+```
+v_med = median(v_roi_compensated)      # = person's translational component
+v_resid = v_roi_compensated - v_med    # = residual deformation (expansion)
+```
+
+The **median is robust** to the non-uniform nature of body flow: limbs move differently from the torso, but the dominant rigid-body translation dominates the median.
+
+---
+
+**Stage 3 — Feature extraction from each component:**
+
+From the **translational component** (`v_med`):
+
+```
+# Project median flow onto each point's outward radial direction:
+d = p0 - center        # vector from ROI centre to each tracked point
+r = ||d|| + ε
+
+radial_translation = (d · v_med) / r    # per-point radial projection of translation
+
+translation_signed = mean(radial_translation)
+  # Positive → ROI uniformly expanding via translation = person approaching camera
+  # Negative → ROI uniformly contracting = person retreating
+
+translation_mag = ||v_med||             # Speed of translational motion
+```
+
+`translation_signed` is the cleanest approach signal: it is positive if and only if the entire ROI is moving outward (away from its centre), which occurs when the person is getting closer. It is negative when retreating.
+
+From the **residual component** (`v_resid`):
+
+```
+radial_resid = (d · v_resid) / r       # per-point radial of deformation flow
+
+divergence = mean(radial_resid[radial_resid > 0])
+  # Average magnitude of outward-only residual radial components
+  # Positive when body surface points are locally spreading outward
+  # Zero when there is no net expansion in the residual
+
+resid_mag = mean(||v_resid||)
+div_ratio = divergence / (divergence + resid_mag + ε)
+  # ≈ 1.0 → residual flow is predominantly outward expansion
+  # ≈ 0.0 → residual is tangential (arm waving, rotation) or zero
+```
+
+`divergence` captures **intra-body expansion**: e.g., a punch extends one arm outward from the torso centre, generating a strong positive radial residual in the direction of the strike. `div_ratio` normalises by total residual magnitude to distinguish a genuine expansion from random limb movement.
+
+---
+
+#### 3.3.3 Why This Decomposition Is Better Than Alternatives
+
+| Approach | Translation signal | Expansion signal | Camera-motion robust | Lateral rejection |
+|----------|--------------------|-----------------|---------------------|-------------------|
+| Raw flow magnitude | Conflated | Conflated | ❌ No | ❌ No |
+| Bbox area growth | Indirect (1D) | Indirect (1D) | Partial | ❌ No |
+| Simple radial/tangential on raw flow | Polluted by translation | Polluted by translation | Partial | Partial |
+| Dense divergence field (∂fx/∂x + ∂fy/∂y) | ❌ Absent | Noisy | ❌ No | ❌ No |
+| **This approach** | ✅ Clean (`translation_signed`) | ✅ Clean (`divergence`) | ✅ Yes (2-stage) | ✅ Yes (`div_ratio`) |
+
+Key advantages:
+- **No confusion between translation and expansion**: a person walking toward the camera at constant size (distant, zoomed out) gives high `translation_signed` but low `divergence`. A person standing still while throwing a punch gives low `translation_signed` but high `divergence`. Both are correctly captured.
+- **Two independent threat indicators**: the GRU can learn that high `translation_signed` *combined with* high `divergence` is the most dangerous pattern (fast approach + arm extension), while either alone may be benign.
+- **Numerically stable**: using median (not mean) for the translation estimate is robust to outlier flow vectors from limb tips and clothing edges.
+
+---
+
+#### 3.3.4 Multi-ROI Strategy
+
+Two separate ROIs are processed independently:
+
+**Torso ROI** (`translation_signed_torso`, `translation_torso`, `divergence_torso`, `div_ratio_torso`):
+- Square region centred on the torso centre (shoulder-hip midpoint), side = 1.2 × torso height
+- Centre of decomposition = torso centre
+- Captures: approach speed, upper-body expansion, punch/grab wind-up (arm extends outward from torso centre)
+
+**Lower ROI** (`translation_signed_lower`, `translation_lower`, `divergence_lower`, `div_ratio_lower`):
+- Rectangle offset downward from torso centre (1.5 × torso width, 1.2 × torso height, shifted 0.4 × torso height down)
+- Centre of decomposition = lower ROI centre (not torso centre)
+- Captures: leg/hip motion, kick preparation (leg extends outward from lower-body centre), tackle approach
+
+Using the **lower ROI's own centre** is important: if the torso centre were used instead, a forward leg stride (kick preparation) would appear mostly tangential (the leg moves downward, which is perpendicular to the radial direction from the torso), losing the approach signal. With the lower-body centre, the same leg stride correctly appears as a strong outward (radial) motion.
+
+---
+
+#### 3.3.5 Full Per-Frame Pipeline
+
+```
+Frame t-1, Frame t
+     ↓
+Pose detection → torso_center, lower_center, bbox
+     ↓
+Sample ~200 background points (outside bbox + 20px margin)
+     ↓
+Sample ~200 points inside torso ROI
+Sample ~200 points inside lower ROI
+     ↓
+Lucas-Kanade tracking:  v_bg, v_torso, v_lower
+     ↓
+Background estimation:  v_bg_med = median(v_bg)
+Background coherence:   bg_coh = ||mean(v_bg)|| / (mean(||v_bg||) + ε)
+     ↓
+Background subtraction:
+    v_torso_comp = v_torso - v_bg_med
+    v_lower_comp = v_lower - v_bg_med
+     ↓
+radial_tangential_stats(p0_torso, v_torso_comp, torso_center)
+    → translation_signed_torso, translation_torso,
+      divergence_torso, div_ratio_torso
+     ↓
+radial_tangential_stats(p0_lower, v_lower_comp, lower_center)
+    → translation_signed_lower, translation_lower,
+      divergence_lower, div_ratio_lower
+     ↓
+Output: 10 flow features (indices 32–41)
+```
+
+### 3.4 Mask Vector
 
 Each feature has a corresponding mask bit indicating validity:
 
@@ -467,33 +666,26 @@ mask[i] = 0  # Feature is invalid (keypoint missing, imputed from previous frame
 
 The mask is concatenated with features before feeding to GRU:
 ```python
-input = concatenate([features, mask], axis=-1)  # [30] + [30] = [60]
+input = concatenate([features, mask], axis=-1)  # [51] + [51] = [102]
 ```
 
 This allows the model to learn the reliability of each feature dynamically.
 
-### 3.4 Feature Importance (From Training)
+### 3.5 Feature Importance (From Training)
 
-Top 10 most important features (based on permutation importance):
+Feature importance is computed via permutation importance after training (see `src/feature_importance.py`). The permutation importance measures the drop in F1 score when each feature is randomly shuffled.
 
-| Rank | Feature | Importance | Interpretation |
-|------|---------|------------|----------------|
-| 1 | div_positive_mean | 0.244 | Person expanding in view (approach) |
-| 2 | min_arm_angle | 0.077 | Most bent arm (strike preparation) |
-| 3 | approach_acceleration | 0.060 | Rapid approach acceleration |
-| 4 | l_arm_angle | 0.059 | Left arm configuration |
-| 5 | squared_up | 0.028 | Facing camera (attack stance) |
-| 6 | r_arm_angle | 0.027 | Right arm configuration |
-| 7 | flow_direction_std | 0.021 | Motion coherence |
-| 8 | r_wrist_raised | 0.020 | Right wrist above shoulder |
-| 9 | max_wrist_raised | 0.017 | Either wrist raised |
-| 10 | l_wrist_raised | 0.017 | Left wrist above shoulder |
+**Top 5 features by permutation importance (measured):**
 
-**Key Insights**:
-- **Motion features dominate**: div_positive_mean (person expansion) is most important
-- **Arm geometry matters**: All three arm angle features in top 6
-- **Approach dynamics**: Acceleration more important than velocity
-- **Bilateral features**: Both left and right features contribute
+1. **`expansion_proximity`** (index 49) — 11.1%: `divergence_torso × proximity_weight`; the person is not just expanding in frame but doing so from close range, making this the single strongest combined threat signal.
+2. **`acceleration_proximity`** (index 50) — 9.5%: `max_wrist_extension_accel × proximity_weight`; sudden wrist acceleration gated by proximity — separates a genuine close-range strike from a distant gesture.
+3. **`translation_lower`** (index 37) — 9.2%: translational speed of the lower body ROI; fast lower-body movement toward the camera is the primary indicator of a charge, kick, or tackle run-up.
+4. **`max_wrist_extension_accel`** (index 46) — 8.6%: acceleration of wrist extension toward the torso; captures the explosive snap of a strike wind-up that slower velocity features miss.
+5. **`translation_torso`** (index 33) — 8.3%: translational speed of the upper body ROI; measures how quickly the torso is closing distance on the camera, independent of body expansion.
+
+The top 5 account for ~46.7% of total importance. The dominance of the two interaction features (ranks 1–2) confirms that **proximity-gated motion** is the most discriminative pattern — the same movement that is benign at distance becomes the strongest attack signal when close.
+
+Run `python -m src.train` to regenerate the full ranked importance list for the current model.
 
 ---
 
@@ -503,13 +695,13 @@ Top 10 most important features (based on permutation importance):
 
 ```
 Input: [batch, window_len, input_dim]
-       [B, 5, 60]
+       [B, 5, 102]
 
        ↓
 
 ┌──────────────────────────────────────┐
 │           GRU Layer (1 layer)        │
-│  • input_size: 60                    │
+│  • input_size: 102                   │
 │  • hidden_size: 64                   │
 │  • num_layers: 1                     │
 │  • batch_first: True                 │
@@ -549,7 +741,7 @@ class HazardGRU(nn.Module):
 
         # GRU layer
         self.gru = nn.GRU(
-            input_size=input_dim,      # 60 (30 features + 30 mask)
+            input_size=input_dim,      # 102 (51 features + 51 masks)
             hidden_size=hidden,         # 64
             num_layers=1,
             batch_first=True
@@ -562,7 +754,7 @@ class HazardGRU(nn.Module):
         self.fc = nn.Linear(hidden, 1)
 
     def forward(self, x):
-        # x: [B, T, D] = [batch, 5, 60]
+        # x: [B, T, D] = [batch, 5, 102]
         out, _ = self.gru(x)           # [B, T, H] = [B, 5, 64]
         h_last = out[:, -1, :]         # [B, H] = [B, 64]
         h_last = self.dropout(h_last)  # [B, 64]
@@ -575,10 +767,10 @@ class HazardGRU(nn.Module):
 
 ```
 GRU:
-  • Input weights: 60 × (64 × 3) = 11,520
+  • Input weights: 102 × (64 × 3) = 19,584
   • Hidden weights: 64 × (64 × 3) = 12,288
   • Biases: 64 × 3 × 2 = 384
-  • Total GRU: 24,192
+  • Total GRU: 32,256
 
 Dropout: 0 parameters
 
@@ -587,8 +779,8 @@ FC:
   • Bias: 1
   • Total FC: 65
 
-Total Parameters: 24,257 ≈ 24K
-Model Size: <100 KB
+Total Parameters: 32,321 ≈ 32K
+Model Size: <1 MB
 ```
 
 ### 4.4 Why GRU?
@@ -615,14 +807,14 @@ Model Size: <100 KB
 The model receives **concatenated features and masks**:
 
 ```python
-# Features: [B, T, 30]
-# Masks: [B, T, 30]
-# Input: [B, T, 60] = concatenate([features, masks], axis=-1)
+# Features: [B, T, 51]
+# Masks: [B, T, 51]
+# Input: [B, T, 102] = concatenate([features, masks], axis=-1)
 ```
 
 This design allows the GRU to:
-1. Learn feature values from the first 30 dimensions
-2. Learn feature reliability from the next 30 dimensions
+1. Learn feature values from the first 51 dimensions
+2. Learn feature reliability from the next 51 dimensions
 3. Automatically down-weight unreliable features
 
 Alternative approaches considered:
@@ -828,7 +1020,7 @@ def split_by_windows(video_list, val_fraction=0.15):
 
 ```python
 # Model
-input_dim = 60          # 30 features + 30 mask
+input_dim = 102         # 51 features + 51 masks
 hidden = 64             # GRU hidden units
 dropout = 0.25          # Dropout rate
 
@@ -931,8 +1123,8 @@ save_metadata({"best_threshold": best_threshold})
 **Saved artifacts**:
 ```
 outputs/checkpoints/
-├── hazard_gru.pt          # Model weights (best F1)
-└── meta.json              # {"input_dim": 60, "best_threshold": 0.55}
+├── hazard_gru_YYYYMMDD_HHMMSS.pt   # Model weights (best F1, timestamped)
+└── meta.json                        # {"input_dim": 102, "best_threshold": 0.55, "model_file": "hazard_gru_...pt"}
 ```
 
 ---
@@ -1227,10 +1419,11 @@ class FeatureState:
 
     def impute(self, current_value, is_valid):
         """
-        Impute missing values by carrying forward up to carry_steps.
+        Freeze at last known value when feature is invalid.
+        miss_run is tracked informationally but does not alter behaviour.
 
         Returns:
-            imputed_value: current if valid, else carried-forward
+            imputed_value: current if valid, else last known value (frozen)
         """
         if is_valid:
             self.prev_value = current_value
@@ -1238,10 +1431,7 @@ class FeatureState:
             return current_value
         else:
             self.miss_run += 1
-            if self.miss_run <= self.carry_steps:
-                return self.prev_value  # Carry forward
-            else:
-                return self.prev_value  # Freeze (no further extrapolation)
+            return self.prev_value  # Always freeze at last valid value
 ```
 
 **Example**:
@@ -1266,23 +1456,24 @@ cf = carry forward (within carry_steps=3)
 ### 8.2 Bounding Box Derivatives
 
 ```python
-# Position and size derivatives require temporal information
-# Computed AFTER all frames are extracted
+# Position and size derivatives require temporal information.
+# build_features() leaves x[10] and x[11] as 0.0 placeholders.
+# dataset.py fills them in batch; evaluate.py/infer.py fill them frame-by-frame.
 
-log_area = X[:, 10]  # From bbox_features
-dt = 0.1  # Time step (0.1s @ 10 FPS)
+log_area = X[:, 9]    # index 9: log_area (always valid)
+dt = 0.1              # Time step (0.1s @ 10 FPS)
 
-# First derivative (velocity)
+# First derivative (velocity) — valid from frame 1
 dlog_area_dt = zeros_like(log_area)
 dlog_area_dt[1:] = (log_area[1:] - log_area[:-1]) / dt
 
-# Second derivative (acceleration)
+# Second derivative (acceleration) — valid from frame 2
 d2log_area_dt2 = zeros_like(log_area)
 d2log_area_dt2[2:] = (dlog_area_dt[2:] - dlog_area_dt[1:-1]) / dt
 
 # Update feature array
-X[:, 11] = dlog_area_dt
-X[:, 12] = d2log_area_dt2
+X[:, 10] = dlog_area_dt    # index 10: dlog_area_dt
+X[:, 11] = d2log_area_dt2  # index 11: d2log_area_dt2
 ```
 
 **Why not compute during extraction?**
@@ -1480,35 +1671,16 @@ Recommendations:
 
 ### 9.3 Feature Importance Analysis
 
-**Top 5 Features**:
-1. **div_positive_mean (0.244)**: Person expansion in view
-   - Most important feature
-   - Indicates approach
-   - Captured by optical flow
+Feature importance is computed automatically at end of training via `src/feature_importance.py` (permutation importance over 5 repeats). Results are saved to `outputs/logs/feature_importance_*.json`.
 
-2. **min_arm_angle (0.077)**: Most bent arm
-   - Second most important
-   - Indicates strike preparation
-   - Pose-based geometric feature
+The old importance results listed here were from the previous 30-feature system and no longer apply to the current 51-feature / 102-dim model. Re-run training to obtain updated importance scores.
 
-3. **approach_acceleration (0.060)**: Rate of approach increase
-   - Third most important
-   - Captures aggressive movement
-   - Temporal derivative feature
-
-4. **l_arm_angle (0.059)**: Left arm configuration
-   - Bilateral symmetry with r_arm_angle
-   - Captures hand/arm positioning
-
-5. **squared_up (0.028)**: Facing camera
-   - Attack stance indicator
-   - Boolean geometric feature
-
-**Insights**:
-- **Motion dominates**: Top feature is optical flow-based
-- **Geometry matters**: 4/5 top features involve pose
-- **Derivatives important**: Acceleration > velocity
-- **Bilateral features**: Both arms contribute independently
+**Design-intent expected ranking** (qualitative):
+- Optical flow divergence features (indices 34-35, 38-39) — approach signal
+- Bbox growth rate (index 10) — proximity signal
+- Interaction features (indices 48-50) — combined approach + wrist signal
+- Wrist-to-torso distances (indices 19-20) — extension signal
+- Elbow angles (indices 23-24) — strike preparation posture
 
 ### 9.4 Threshold Sensitivity
 
@@ -1642,38 +1814,61 @@ LSTM      32K     11 min      0.829   95 FPS
 
 ### 11.1 Feature Dimension Mapping
 
-| Index | Feature Name | Description | Unit | Validity |
-|-------|--------------|-------------|------|----------|
-| 0 | l_arm_angle | Left shoulder-elbow-wrist angle | radians | Pose |
-| 1 | r_arm_angle | Right shoulder-elbow-wrist angle | radians | Pose |
-| 2 | min_arm_angle | Minimum of left/right arm angles | radians | Pose |
-| 3 | l_wrist_raised | Left wrist above left shoulder | binary | Pose |
-| 4 | r_wrist_raised | Right wrist above right shoulder | binary | Pose |
-| 5 | max_wrist_raised | Either wrist raised | binary | Pose |
-| 6 | torso_scale | Shoulder-hip distance | pixels | Pose |
-| 7 | squared_up | Shoulders horizontal (facing camera) | binary | Pose |
-| 8 | approach_speed | d(torso_scale)/dt | pixels/s | Pose |
-| 9 | approach_accel | d²(torso_scale)/dt² | pixels/s² | Pose |
-| 10 | log_area | log(bbox area) | log(px²) | Always |
-| 11 | dlog_area_dt | d(log_area)/dt | log(px²)/s | Always |
-| 12 | d2log_area_dt2 | d²(log_area)/dt² | log(px²)/s² | Always |
-| 13 | lateral_speed | Horizontal torso movement | pixels/s | Pose |
-| 14 | min_distance | Closest point to camera (proxy) | pixels | Pose |
-| 15 | det_conf | YOLOv8 detection confidence | [0,1] | Always |
-| 16 | kp_conf_mean | Mean keypoint confidence | [0,1] | Always |
-| 17 | kp_conf_min | Min keypoint confidence | [0,1] | Always |
-| 18 | visible_kp | Number of visible keypoints | [0,17] | Always |
-| 19 | track_age | Frames since first detection | frames | Always |
-| 20 | lost | Frames since last detection | frames | Always |
-| 21 | person_flow_mag | Optical flow magnitude (person) | pixels/frame | Flow |
-| 22 | person_flow_dir_std | Flow direction std (person) | radians | Flow |
-| 23 | bg_flow_mag | Optical flow magnitude (background) | pixels/frame | Flow |
-| 24 | bg_flow_dir_std | Flow direction std (background) | radians | Flow |
-| 25 | radial_ratio | Radial vs tangential flow ratio | [0,1] | Flow |
-| 26 | div_positive_mean | Mean positive radial flow (expansion) | pixels/frame | Flow |
-| 27 | cx_vel | Bbox center x velocity | pixels/s | Always |
-| 28 | cy_vel | Bbox center y velocity | pixels/s | Always |
-| 29 | any_crop | Bbox touches frame edge | binary | Always |
+| Index | Feature Name | Description | Validity |
+|-------|--------------|-------------|----------|
+| 0 | det_conf | YOLOv8 detection confidence | Always |
+| 1 | kp_conf_mean | Mean keypoint confidence | Always |
+| 2 | kp_conf_min | Min keypoint confidence | Always |
+| 3 | visible_kp_count | Number of visible keypoints | Always |
+| 4 | anyc | Bbox touches any frame edge | Always |
+| 5 | crop_left | Bbox touches left edge | Always |
+| 6 | crop_right | Bbox touches right edge | Always |
+| 7 | crop_top | Bbox touches top edge | Always |
+| 8 | crop_bottom | Bbox touches bottom edge | Always |
+| 9 | log_area | log(bbox area) | Always |
+| 10 | dlog_area_dt | d(log_area)/dt — filled by dataset/evaluate/infer | Frame ≥1 |
+| 11 | d2log_area_dt2 | d²(log_area)/dt² — filled by dataset/evaluate/infer | Frame ≥2 |
+| 12 | bbox_center_x | Normalised bbox centre x | Always |
+| 13 | bbox_center_y | Normalised bbox centre y | Always |
+| 14 | bbox_center_vx | Bbox centre x velocity | Frame ≥1 |
+| 15 | bbox_center_vy | Bbox centre y velocity | Frame ≥1 |
+| 16 | bbox_aspect | Bbox width/height ratio | Always |
+| 17 | dist_l_wrist_l_shoulder | Left wrist to left shoulder distance | Pose |
+| 18 | dist_r_wrist_r_shoulder | Right wrist to right shoulder distance | Pose |
+| 19 | dist_l_wrist_torso | Left wrist to torso centre distance | Pose |
+| 20 | dist_r_wrist_torso | Right wrist to torso centre distance | Pose |
+| 21 | shoulder_width | Distance between shoulders | Pose |
+| 22 | hip_width | Distance between hips | Pose |
+| 23 | angle_l_elbow | Left elbow angle (shoulder-elbow-wrist) | Pose |
+| 24 | angle_r_elbow | Right elbow angle | Pose |
+| 25 | angle_l_knee | Left knee angle (hip-knee-ankle) | Pose |
+| 26 | angle_r_knee | Right knee angle | Pose |
+| 27 | dist_l_ankle_l_hip | Left ankle to left hip distance | Pose |
+| 28 | dist_r_ankle_r_hip | Right ankle to right hip distance | Pose |
+| 29 | dist_l_ankle_torso | Left ankle to torso centre distance | Pose |
+| 30 | dist_r_ankle_torso | Right ankle to torso centre distance | Pose |
+| 31 | stance_width | Distance between ankles | Pose |
+| 32 | translation_signed_torso | Signed net translation in torso ROI | Flow |
+| 33 | translation_torso | Translation magnitude in torso ROI | Flow |
+| 34 | divergence_torso | mean(max(radial,0)) in torso ROI | Flow |
+| 35 | div_ratio_torso | Radial/(radial+tangential) in torso ROI | Flow |
+| 36 | translation_signed_lower | Signed net translation in lower ROI | Flow |
+| 37 | translation_lower | Translation magnitude in lower ROI | Flow |
+| 38 | divergence_lower | mean(max(radial,0)) in lower ROI | Flow |
+| 39 | div_ratio_lower | Radial/(radial+tangential) in lower ROI | Flow |
+| 40 | bg_flow_coherence | Background flow coherence | Flow |
+| 41 | flow_ok | Flow validity flag | Always |
+| 42 | torso_compression_ratio | Torso height/width ratio | Pose |
+| 43 | wrist_height_asymmetry | |left_wrist_y - right_wrist_y| / torso_height | Pose |
+| 44 | face_visibility | Nose/eye keypoint confidence (face-on proxy) | Pose |
+| 45 | max_wrist_extension_velocity | Max per-wrist extension speed — filled by dataset/evaluate/infer | Frame ≥1 |
+| 46 | max_wrist_extension_accel | Max per-wrist extension acceleration — filled by dataset/evaluate/infer | Frame ≥2 |
+| 47 | log_scale | log(torso_height_px) — pose-derived apparent size | Pose |
+| 48 | approach_rate | max(dlog_scale_dt,0) × max(translation_signed_torso,0) | Computed |
+| 49 | expansion_proximity | divergence_torso × proximity_weight | Computed |
+| 50 | acceleration_proximity | max_wrist_extension_accel × proximity_weight | Computed |
+
+**Note**: Indices 10–11 (dlog_area_dt, d2log_area_dt2), 45–46 (wrist velocity/acceleration), and 48–50 (interaction features) are 0.0 placeholders in `build_features()`; they are filled frame-by-frame in `dataset.py`, `evaluate.py`, and `infer.py`.
 
 ### 11.2 COCO-17 Keypoint Layout
 
@@ -1710,13 +1905,12 @@ class Config:
 
     # Video processing
     input_fps: int = 30           # Source video FPS
-    proc_fps: int = 10            # Processing FPS
-    frame_stride: int = 3         # Downsample factor
+    frame_stride: int = 3         # process every 3rd frame → 10 FPS at 30 FPS input
 
     # Temporal window
     window_len: int = 5           # Frames per window
     step_dt: float = 0.1          # Time step (s)
-    safe_window_stride: int = 5   # Safe video stride
+    safe_window_stride: int = 3   # Safe video stride
     attack_window_stride: int = 1 # Attack video stride
 
     # Keypoint validity

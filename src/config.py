@@ -8,8 +8,7 @@ class Config:
 
     # Video
     input_fps: int = 30
-    proc_fps: int = 10
-    frame_stride: int = 3  # 30->10
+    frame_stride: int = 3  # process every 3rd frame → 10 FPS at 30 FPS input
 
     # Model window
     window_len: int = 5 # 0.5s at 10 FPS

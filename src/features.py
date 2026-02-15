@@ -18,17 +18,15 @@ class FeatureState:
         self.miss_run = np.zeros((dim,), dtype=np.int32)
 
     def impute(self, x, valid):
-        # carry-forward for <= carry_steps
+        # Always freeze at last known value when a feature is missing.
+        # miss_run tracks consecutive missing frames (informational; not used to change behaviour).
         out = x.copy()
         for i in range(len(out)):
             if valid[i] > 0.5:
                 self.miss_run[i] = 0
             else:
                 self.miss_run[i] += 1
-                if self.miss_run[i] <= self.carry_steps:
-                    out[i] = self.prev[i]
-                else:
-                    out[i] = self.prev[i]  # freeze
+                out[i] = self.prev[i]
         self.prev = out
         self.prev_valid = valid
         return out
@@ -45,8 +43,8 @@ def crop_flags(bbox, w, h, eps):
     return anyc, (left,right,top,bottom)
 
 def bbox_features(bbox, prev_bbox, dt):
-    # returns: log_area, dlog_area_dt, d2log_area_dt2 placeholder (computed outside),
-    # cx,cy, dcx_dt,dcy_dt, aspect
+    # returns: log_area, 0.0 (dlog_area_dt placeholder — filled by dataset.py/evaluate.py/infer.py),
+    # cx, cy, dcx_dt, dcy_dt, aspect
     x1,y1,x2,y2 = bbox
     w = max(x2-x1, 1e-6)
     h = max(y2-y1, 1e-6)
@@ -99,14 +97,13 @@ def build_features(
         x1,y1,x2,y2 = bbox
         torso_c = np.array([(x1+x2)/2.0, (y1+y2)/2.0], dtype=np.float32)
         torso_s = float(max(y2-y1, 1e-6))
-        torso_ok = False
 
     norm = float(torso_s + 1e-6)
 
     # --- bbox approach features (invalid if cropped)
     log_area, _, cx, cy, dcx, dcy, aspect = bbox_features(bbox, prev_bbox, cfg.step_dt)
-    # dlog_area_dt computed from stored prev log_area (outside), but we include as feature here as 0 placeholder.
-    # We'll compute properly in dataset builder (simpler) OR keep a rolling prev inside inference.
+    # x[10] (dlog_area_dt) and x[11] (d2log_area_dt2) are 0.0 placeholders here;
+    # filled from frame history by dataset.py / evaluate.py / infer.py.
 
     # Normalize center by image dims
     cx_n = cx / w
@@ -218,7 +215,7 @@ def build_features(
             trans_signed_low, trans_low, div_low, div_ratio_low = radial_tangential_stats(p0_l, v_l2, lower_c)
             flow_ok = 1.0
 
-    # New posture features
+    # Posture features
     torso_compression = 0.0
     wrist_height_asym = 0.0
     face_visibility = 0.0
@@ -274,8 +271,6 @@ def build_features(
     #   when hips are truncated/cropped near the bottom border, or when hip keypoints jitter/shift.
     #   In those cases we mark log_scale invalid (v_log_scale=0) so FeatureState will carry-forward
     #   the last reliable scale instead of letting proximity features spike.
-    has_sh = kp_valid(kps, COCO17["l_shoulder"], cfg.kp_conf_thresh) and kp_valid(kps, COCO17["r_shoulder"], cfg.kp_conf_thresh)
-    has_hp = kp_valid(kps, COCO17["l_hip"], cfg.kp_conf_thresh) and kp_valid(kps, COCO17["r_hip"], cfg.kp_conf_thresh)
 
     # Default
     log_scale = 0.0
@@ -390,7 +385,8 @@ def add_interaction_features(
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Add interaction features (motion × proximity) to a single feature vector.
-    Used during online inference when temporal derivatives are available from previous frames.
+    Used during frame-by-frame inference and evaluation when temporal derivatives
+    are available from previous frames.
 
     Args:
         x: feature vector [48] from build_features

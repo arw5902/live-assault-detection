@@ -48,10 +48,12 @@ def evaluate_video(video_path, ground_truth, model, detector, cfg, device, thres
     prev_wrist_vel_l = 0.0
     prev_wrist_vel_r = 0.0
 
-    # Track log_area for dlog_area_dt / d2log_area_dt2 (indices 10, 11)
+    # Track log_area for dlog_area_dt / d2log_area_dt2 (indices 10, 11).
     # build_features() leaves these as 0.0 placeholders; dataset.py fills them from the full
     # sequence. We must replicate that here frame-by-frame to avoid a train/eval mismatch.
+    # prev_prev_log_area sentinel matches dataset.py: m[11] valid only from frame 2 onward.
     prev_log_area = None
+    prev_prev_log_area = None
     prev_dlog_area_dt = 0.0
 
     # Track log_scale for dlog_scale_dt computation (approach_rate)
@@ -96,14 +98,28 @@ def evaluate_video(video_path, ground_truth, model, detector, cfg, device, thres
         # --- log_area derivatives (indices 10, 11) ---
         dlog_area_dt = 0.0
         d2log_area_dt2 = 0.0
-        have_log_area_deriv = prev_log_area is not None
+
+        have_log_area_deriv = prev_log_area is not None   # valid from frame 1
+
         if have_log_area_deriv:
             dlog_area_dt = (log_area - prev_log_area) / dt
-            d2log_area_dt2 = (dlog_area_dt - prev_dlog_area_dt) / dt
+
+            # Only compute 2nd derivative if previous dlog_area_dt is real
+            if prev_dlog_area_dt is not None:
+                d2log_area_dt2 = (dlog_area_dt - prev_dlog_area_dt) / dt
+            else:
+                # First valid frame after init/reset → safe neutral value
+                d2log_area_dt2 = 0.0
+
+        # Update state AFTER computing derivatives
         prev_log_area = log_area
         prev_dlog_area_dt = dlog_area_dt
+
+        # Store features
         x[10] = dlog_area_dt
         x[11] = d2log_area_dt2
+
+        # Keep mask stable (this preserves your FP-avoiding behavior)
         m[10] = 1.0 if have_log_area_deriv else 0.0
         m[11] = 1.0 if have_log_area_deriv else 0.0
 
@@ -122,6 +138,11 @@ def evaluate_video(video_path, ground_truth, model, detector, cfg, device, thres
 
             prev_wrist_vel_l = vel_l
             prev_wrist_vel_r = vel_r
+        else:
+            # Reset cached velocities so a reappearing wrist doesn't produce a
+            # spurious acceleration spike from stale state.
+            prev_wrist_vel_l = 0.0
+            prev_wrist_vel_r = 0.0
         prev_wrist_dist_l = dist_l
         prev_wrist_dist_r = dist_r
         x[45] = wrist_vel
@@ -214,17 +235,18 @@ def main(holdout_dir: str):
     print()
 
     cfg = Config()
-    detector = PoseDetector()
+    detector = PoseDetector(cfg)
 
     # Load model and best threshold
     with open("outputs/checkpoints/meta.json") as f:
         meta = json.load(f)
         input_dim = meta["input_dim"]
         threshold = meta.get("best_threshold", cfg.early_thresh)  # Use tuned threshold or fallback to config
+        model_file = meta.get("model_file", "hazard_gru.pt")
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = HazardGRU(input_dim=input_dim, hidden=cfg.gru_hidden, dropout=0.0)
-    model.load_state_dict(torch.load("outputs/checkpoints/hazard_gru.pt", map_location=device))
+    model.load_state_dict(torch.load(f"outputs/checkpoints/{model_file}", map_location=device))
     model.eval()
 
     # Load labels for attack videos from holdout/labels.json
@@ -295,7 +317,7 @@ def main(holdout_dir: str):
             safe_results.append(result)
             detected = result['first_detection_frame'] >= 0
             print(f"{'FP' if detected else 'OK'} (max_hazard={result['max_hazard']:.3f})")
-    
+
     print("\n" + "=" * 80)
     print("ATTACK VIDEOS - Multi-Level Warning Analysis")
     print("=" * 80)
@@ -388,14 +410,14 @@ def main(holdout_dir: str):
             if pre_contact_critical:
                 critical_warning_rate = len(pre_contact_critical) / max(1, len(lead_times_critical))
                 print(f"  Pre-contact CRITICAL warnings: {critical_warning_rate:.1%} ({len(pre_contact_critical)}/{len(lead_times_critical)})")
-    
+
     print("\n" + "=" * 80)
     print("SAFE VIDEOS")
     print("=" * 80)
-    
+
     false_positives = []
     true_negatives = []
-    
+
     for r in safe_results:
         first_det = r['first_detection_frame']
         if first_det >= 0:
@@ -403,13 +425,13 @@ def main(holdout_dir: str):
             print(f"{r['video_name']:20s} | FP @ frame {first_det} (max_hazard={r['max_hazard']:.3f})")
         else:
             true_negatives.append(r)
-    
+
     fp_rate = len(false_positives) / max(1, len(safe_results))
     tn_rate = len(true_negatives) / max(1, len(safe_results))
 
     print(f"\nFalse Positive Rate (safe videos): {fp_rate:.1%} ({len(false_positives)}/{len(safe_results)})")
     print(f"True Negative Rate: {tn_rate:.1%} ({len(true_negatives)}/{len(safe_results)})")
-    
+
     print("\n" + "=" * 80)
     print("OVERALL SUMMARY")
     print("=" * 80)
