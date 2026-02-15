@@ -5,11 +5,11 @@ A real-time assault detection system that provides early warning alerts before p
 ## 🎯 Overview
 
 This system analyzes video streams to detect assault behavior **before contact happens**, providing multi-level warnings:
-- **PRE-CONTACT**: Early warning (target: 0.5-1.0s before contact)
+- **PRE-CONTACT**: Early warning (target: 0.05-0.1s before contact)
 - **HIGH**: Elevated threat level
 - **CRITICAL**: Imminent contact
 
-The system achieves 94.6% detection rate with 62.9% pre-contact warning rate and 0% false positives on safe videos.
+The system achieves 96.7% detection rate with 55.9% pre-contact warning rate and 14.8% false positive rate on safe videos.
 
 ## 📋 Table of Contents
 
@@ -30,8 +30,8 @@ The system achieves 94.6% detection rate with 62.9% pre-contact warning rate and
 ### Core Capabilities
 - **Real-time Detection**: Processes video at 10 FPS (downsampled from 30 FPS)
 - **Multi-level Alerts**: Three escalating warning levels
-- **High Accuracy**: 94.6% detection rate, 0% false positives on safe videos
-- **Early Warning**: Mean lead time of 2.4 frames (0.24s) before contact
+- **High Accuracy**: 96.7% detection rate, 14.8% false positive rate on safe videos
+- **Early Warning**: 55.9% of detected attacks warned before contact (mean lead 0.8 frames)
 - **Pose-based Features**: 51-dimensional feature vector from body keypoints and optical flow
 - **Optical Flow Analysis**: Radial/tangential motion decomposition
 - **Temporal Modeling**: GRU neural network for sequence analysis
@@ -118,7 +118,7 @@ python -m src.train
 ### Evaluation
 
 ```bash
-python -m src.evaluate ../AssaultDetection-main/holdout
+python -m src.evaluate holdout
 ```
 
 ## 📚 Usage
@@ -181,8 +181,8 @@ safe_window_stride: int = 3      # Stride for safe videos
 attack_window_stride: int = 1    # Stride for attack videos (preserves coherence)
 
 # Focal Loss
-focal_gamma: float = 3.0         # Focus on hard examples (2.0=standard, 3.0=aggressive)
-focal_alpha: float = 0.75        # Attack class weight (higher=prioritize recall)
+focal_gamma: float = 4.0         # Focus on hard examples (was 3); higher=more aggressive
+focal_alpha: float = 0.25        # Attack class weight (was 0.75)
 
 # GRU
 gru_hidden: int = 64             # Hidden units
@@ -217,33 +217,59 @@ python -m src.train
 
 ### Training Output
 
+From `outputs/logs/train_20260214_151253.log`:
+
 ```
+================================================================================
+FEATURE CONFIGURATION VERIFICATION
+================================================================================
+Model input dimension: 102 (features + masks)
+Number of raw features: 51
+Number of FEATURE_NAMES: 51
+✓ Feature names match actual features
+================================================================================
+
+Focal Loss parameters: gamma=4.00, alpha=0.250
+  (gamma: higher=more focus on hard examples)
+  (alpha: higher=prioritize attack class/recall)
+  (class imbalance ratio: 1.45:1)
+
 Dataset window balance:
-  safe_videos=95 steps=10219 windows=2004 stride=5
-  attack_videos=118 steps=1988 windows=1516 stride=1
-  safe/attack window ratio = 1.32
+  safe_videos=95 steps=10219 windows=3308 stride=3
+  attack_videos=149 steps=2826 windows=2230 stride=1
+  safe/attack window ratio = 1.48
 
 Stratified video-level split (class-balanced):
-  Total videos: 213
-  Train videos: 181 (safe=81, attack=100)
-  Val videos: 32 (safe=14, attack=18)
+  Total videos: 243
+  Train videos: 203 (safe=78, attack=125)
+  Val videos: 40 (safe=17, attack=23)
 
 Train set balance:
-  Total windows: 2989 (85.0% of all windows)
-  Safe windows: 1702 (56.9%)
-  Attack windows: 1287 (43.1%)
-  Imbalance ratio: 1.32:1
+  Total windows: 4622 (83.5% of all windows)
+  Safe windows: 2736 (59.2%)
+  Attack windows: 1886 (40.8%)
+  Imbalance ratio: 1.45:1
 
-Focal Loss parameters: gamma=3.00, alpha=0.75
-
-epoch 1/40 train=0.0772 val=0.0408 best_val=0.0408
-  New best F1: 0.732 at threshold 0.50 - Model saved!
-epoch 5/40 train=0.0221 val=0.0273 best_val=0.0273
-  Val Metrics @ thresh=0.50: Acc=0.885 Prec=0.608 Rec=0.989 F1=0.753
+epoch 1/40 train=0.0132 val=0.0089 best_val=0.0089
+epoch 4/40 train=0.0060 val=0.0069 best_val=0.0069
+  New best F1: 0.896 at threshold 0.50 - Model saved!
+  Val Metrics @ thresh=0.50: Acc=0.924 Prec=0.920 Rec=0.872 F1=0.896
+epoch 9/40 train=0.0031 val=0.0054 best_val=0.0054
+  New best F1: 0.921 at threshold 0.55 - Model saved!
+  Val Metrics @ thresh=0.55: Acc=0.942 Prec=0.940 Rec=0.904 F1=0.921
 ...
-epoch 40/40 train=0.0046 val=0.0048 best_val=0.0262
+epoch 29/40 train=0.0009 val=0.0095 best_val=0.0054
+  New best F1: 0.936 at threshold 0.55 - Model saved!
+epoch 30/40 train=0.0009 val=0.0100 best_val=0.0054
+  Val Metrics @ thresh=0.55: Acc=0.953 Prec=0.952 Rec=0.922 F1=0.936
+...
+epoch 40/40 train=0.0005 val=0.0163 best_val=0.0054
 
-Best F1 score: 0.833 at threshold 0.55 (epoch 37)
+================================================================================
+Training completed at 2026-02-14 15:36:45
+Best F1 score: 0.936 at threshold 0.55 (epoch 30)
+Model saved to: outputs/checkpoints/hazard_gru_20260214_151253.pt
+================================================================================
 ```
 
 ### Output Files
@@ -251,11 +277,11 @@ Best F1 score: 0.833 at threshold 0.55 (epoch 37)
 ```
 outputs/
 ├── checkpoints/
-│   ├── hazard_gru_20260204_151139.pt  # Best model weights (timestamped)
-│   └── meta.json                      # Model metadata (input_dim, best_threshold, model_file)
+│   └── hazard_gru_YYYYMMDD_HHMMSS.pt  # Best model weights (timestamped)
 └── logs/
-    ├── train_20260204_151139.log
-    └── feature_importance_20260204_151139.json
+    ├── train_YYYYMMDD_HHMMSS.log
+    ├── evaluate_YYYYMMDD_HHMMSS.log
+    └── feature_importance_YYYYMMDD_HHMMSS.json
 ```
 
 ## 📊 Evaluation
@@ -263,48 +289,70 @@ outputs/
 ### Evaluation Command
 
 ```bash
-python -m src.evaluate ../AssaultDetection-main/holdout
+python -m src.evaluate holdout
 ```
 
 ### Evaluation Output
 
+From `outputs/logs/evaluate_20260215_125032.log` (HIGH/CRITICAL levels omitted):
+
 ```
+================================================================================
 HOLDOUT EVALUATION - Pre-contact Detection
-Holdout directory: ../AssaultDetection-main/holdout
-Using threshold: 0.50 (from training optimization)
+Holdout directory: holdout
+Using threshold: 0.55 (from training optimization)
+================================================================================
 
 --- Processing Attack Videos ---
-Processing h1.mp4... DETECTED (max_hazard=0.856)
-Processing h2.mp4... DETECTED (max_hazard=0.923)
+Processing h13.mp4...        DETECTED (max_hazard=0.866)
+Processing h14.mp4...        DETECTED (max_hazard=0.805)
+Processing h15.mp4...        DETECTED (max_hazard=0.724)
 ...
+Processing h133_part7.mp4... MISSED   (max_hazard=0.502)
+Processing h133_part8.mp4... DETECTED (max_hazard=0.832)
+Processing h133_part9.mp4... DETECTED (max_hazard=0.762)
 
 --- Processing Safe Videos ---
-Processing s1.mp4... OK (max_hazard=0.123)
-Processing s2.mp4... OK (max_hazard=0.087)
+Processing h130_part3.mp4... FP (max_hazard=0.623)
+Processing h126.mp4...       OK (max_hazard=0.335)
+Processing h7.mp4...         OK (max_hazard=0.463)
+Processing h114.mp4...       FP (max_hazard=0.646)
+Processing h115.mp4...       FP (max_hazard=0.600)
+Processing h1_part1.mp4...   FP (max_hazard=0.880)
 ...
 
+================================================================================
 ATTACK VIDEOS - Multi-Level Warning Analysis
-h1.mp4               | Onset@ 126 Attack@ 150 Lead=  +8 [PRE-CONTACT] | Warnings: PC@ 142 H@ 145 C@ 148
-h2.mp4               | Onset@  89 Attack@ 112 Lead=  +5 [PRE-CONTACT] | Warnings: PC@ 107 H@ 110 C@  -1
+================================================================================
+h13.mp4    | Onset@   0 Attack@  32 Lead=  +5 [PRE-CONTACT] | Warnings: PC@  27
+h14.mp4    | Onset@ 140 Attack@ 164 Lead=  +2 [PRE-CONTACT] | Warnings: PC@ 162
+h17.mp4    | Onset@  78 Attack@  93 Lead=  -6 [LATE]        | Warnings: PC@  99
+h20.mp4    | Onset@  15 Attack@  36 Lead=  +0 [ON-TIME]     | Warnings: PC@  36
+h23.mp4    | Onset@  57 Attack@  74 Lead= +14 [PRE-CONTACT] | Warnings: PC@  60
+h130_part10.mp4 | FP @ 90 (before onset@ 156) first=0.692 max=0.875
+h133_part7.mp4  | MISSED (max_hazard=0.502)
 ...
 
-Detection Rate: 94.6% (35/37)
-False Positive Rate (safe videos): 0.0% (0/20)
-False Positive Rate (pre-onset): 5.4% (2/37)
+Detection Rate: 96.7% (59/61)
+Missed Rate: 1.6% (1/61)
+False Positives (pre-onset detections): 1.6% (1/61)
 
---- PRE-CONTACT Level (threshold=0.50) ---
-Pre-contact Warning Rate: 62.9% (22/35 detected attacks)
-  Mean Lead Time: 2.4 frames (0.24s)
-  Median Lead Time: 3.0 frames (0.30s)
-  Pre-contact warnings only: 8.8 frames (0.88s)
+--- PRE-CONTACT Level (threshold=0.55) ---
+Pre-contact Warning Rate: 55.9% (33/59 detected attacks)
+  Mean Lead Time: 0.8 frames (0.03s)
+  Median Lead Time: 2.0 frames (0.07s)
+  Pre-contact warnings only: 7.4 frames (0.25s)
 
---- HIGH Level (threshold=0.60) ---
-HIGH Warning Rate: 94.3% (33/35 detected attacks)
-  Mean Lead Time: 3.4 frames (0.34s)
+================================================================================
+SAFE VIDEOS
+================================================================================
+h130_part3.mp4  | FP @ frame 189 (max_hazard=0.623)
+h114.mp4        | FP @ frame  45 (max_hazard=0.646)
+h115.mp4        | FP @ frame 120 (max_hazard=0.600)
+h1_part1.mp4    | FP @ frame  84 (max_hazard=0.880)
 
---- CRITICAL Level (threshold=0.80) ---
-CRITICAL Warning Rate: 97.1% (34/35 detected attacks)
-  Mean Lead Time: -0.5 frames (-0.05s)
+False Positive Rate (safe videos): 14.8% (4/27)
+True Negative Rate: 85.2% (23/27)
 ```
 
 ## 📁 Project Structure
@@ -347,24 +395,40 @@ Pre-contactDetection/
 
 ## 🎯 Performance
 
-### Current Metrics (Holdout Set)
+### Current Metrics (Holdout Set — 88 videos: 61 attack, 27 safe)
+
+Evaluated at threshold **0.55** (auto-tuned during training).
+
+#### Attack Detection (61 attack videos)
 
 | Metric | Value |
 |--------|-------|
-| Detection Rate | 94.6% (35/37) |
-| Pre-contact Warning Rate | 62.9% (22/35) |
-| Mean Lead Time | 2.4 frames (0.24s) |
-| Median Lead Time | 3.0 frames (0.30s) |
-| False Positive Rate (Safe) | 0.0% (0/20) |
-| False Positive Rate (Pre-onset) | 5.4% (2/37) |
+| Detection Rate | **96.7%** (59/61) |
+| Missed Rate | 1.6% (1/61) |
+| False Positives (pre-onset detections) | 1.6% (1/61) |
 
-### Performance by Warning Level
+#### Safe Video False Positive Rate (27 safe videos)
 
-| Level | Threshold | Detection Rate | Mean Lead Time |
-|-------|-----------|----------------|----------------|
-| PRE-CONTACT | 0.50 | 62.9% | 2.4 frames (0.24s) |
-| HIGH | 0.60 | 94.3% | 3.4 frames (0.34s) |
-| CRITICAL | 0.80 | 97.1% | -0.5 frames (-0.05s) |
+| Metric | Value |
+|--------|-------|
+| False Positive Rate | **14.8%** (4/27) |
+| True Negative Rate | 85.2% (23/27) |
+
+#### Pre-Contact Detection (of 59 detected attacks)
+
+| Metric | Value |
+|--------|-------|
+| Pre-contact Detection Rate | **55.9%** (33/59) |
+| Mean Lead Time | 0.8 frames (0.03s) |
+| Median Lead Time | 2.0 frames (0.07s) |
+
+*Pre-contact detection = alert triggered before the labeled `attack_frame` (first physical contact).*
+
+### Validation Set Best Metrics (epoch 30, threshold=0.55)
+
+| Accuracy | Precision | Recall | F1 Score |
+|----------|-----------|--------|----------|
+| 0.953    | 0.952     | 0.922  | **0.936** |
 
 ### Model Specifications
 
@@ -398,7 +462,7 @@ python -m src.infer data/attack/sample.mp4
 python -m src.train
 
 # Test evaluation
-python -m src.evaluate ../AssaultDetection-main/holdout
+python -m src.evaluate holdout
 ```
 
 ### Adding New Features
@@ -455,7 +519,7 @@ If you use this project in your research, please cite:
 @software{precontact_detection_2025,
   author = {Your Name},
   title = {Pre-contact Detection System for Assault Warning},
-  year = {2025},
+  year = {2026},
   url = {https://github.com/yourusername/Pre-contactDetection}
 }
 ```
