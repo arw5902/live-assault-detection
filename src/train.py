@@ -59,7 +59,7 @@ def main():
     print_seed_info(seed=42, deterministic=True)
     print()
 
-    cfg = Config()
+    cfg = Config.for_pc()
     detector = PoseDetector(cfg)
 
     # Build dataset per video (prevents data leakage)

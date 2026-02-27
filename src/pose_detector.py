@@ -70,12 +70,18 @@ def _decode_scale(box_raw, conf_raw, kps_raw, stride, conf_thresh):
     boxes = np.stack([x1, y1, x2, y2], axis=1)   # (m, 4)
 
     # Keypoint decode — Ultralytics formula:
-    #   kx = (kx_raw * 2.0 + (anchor_x - 0.5)) * stride
-    #      = (kx_raw * 2.0 + gx) * stride   [since ax - 0.5 == gx]
+    #   kx = (sigmoid(kx_raw) * 2.0 + (anchor_x - 0.5)) * stride
+    #      = (sigmoid(kx_raw) * 2.0 + gx) * stride   [since ax - 0.5 == gx]
     #   vis = sigmoid(vis_raw)
+    #
+    # NOTE: sigmoid() MUST be applied to x,y raw values before scaling.
+    # The Hailo HEF outputs large-magnitude raw logits (~56 000) for the
+    # position channels.  Without sigmoid the formula yields coordinates on
+    # the order of 900 000 px (way off-screen).  With sigmoid the saturated
+    # value is ≈ 1.0, giving kp_x ≈ (2 + gx) * stride — a valid pixel.
     kps_f = kps_raw.reshape(N, 17, 3).astype(np.float32)[idx]
-    kp_x  = (kps_f[:, :, 0] * 2.0 + gx[:, None]) * stride
-    kp_y  = (kps_f[:, :, 1] * 2.0 + gy[:, None]) * stride
+    kp_x  = (_sigmoid(kps_f[:, :, 0]) * 2.0 + gx[:, None]) * stride
+    kp_y  = (_sigmoid(kps_f[:, :, 1]) * 2.0 + gy[:, None]) * stride
     kp_v  = _sigmoid(kps_f[:, :, 2])
     kps_out = np.stack([kp_x, kp_y, kp_v], axis=2)  # (m, 17, 3)
 
@@ -266,6 +272,18 @@ class PoseDetector:
         inp = np.expand_dims(img, axis=0)          # (1, H, W, 3) uint8
 
         outputs = self._pipeline.infer({self._input_name: inp})
+
+        # ── first-call diagnostic: print output tensor shapes & value ranges ──
+        if not getattr(self, '_hailo_debug_done', False):
+            self._hailo_debug_done = True
+            print("[Hailo debug] input  name :", self._input_name,
+                  " wh:", self._input_wh)
+            for name, arr in outputs.items():
+                a = np.array(arr)
+                print(f"[Hailo debug] output '{name}': "
+                      f"shape={a.shape}  dtype={a.dtype}  "
+                      f"min={float(a.min()):.3f}  max={float(a.max()):.3f}")
+
         return _postprocess(outputs,
                             self.cfg.yolo_conf,
                             self.cfg.yolo_iou,

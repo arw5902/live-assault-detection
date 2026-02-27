@@ -45,7 +45,7 @@ def lk_flow(prev_gray, curr_gray, pts, win_size, max_level, criteria):
         criteria=criteria
     )
     good = st.reshape(-1) == 1
-    if good.sum() < 5:
+    if good.sum() < 2:          # lowered from 5: uniform clothing gives few trackable pts
         return None, None, None
     p0 = pts.reshape(-1,2)[good]
     p1 = nxt.reshape(-1,2)[good]

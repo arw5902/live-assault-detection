@@ -234,7 +234,7 @@ def main(holdout_dir: str):
     print_seed_info(seed=42, deterministic=True)
     print()
 
-    cfg = Config()
+    cfg = Config.for_pc()
     detector = PoseDetector(cfg)
 
     # Load model and best threshold

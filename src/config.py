@@ -2,6 +2,11 @@ from dataclasses import dataclass
 
 @dataclass
 class Config:
+    """
+    All parameters shared between PC and Pi.
+    The class-body defaults are PC values.
+    Use Config.for_pc() or Config.for_pi() to get a platform-specific instance.
+    """
     data_root: str = "data"
     safe_dir: str = "safe"
     attack_dir: str = "attack"
@@ -28,7 +33,7 @@ class Config:
     lk_max_level: int = 3
     lk_criteria_count: int = 20
     lk_criteria_eps: float = 0.03
-    max_flow_points: int = 200
+    max_flow_points: int = 600  # 600 needed on both platforms: uniform clothing gives few trackable pts
 
     # Focal Loss
     focal_gamma: float = 4.0 # was 3
@@ -44,16 +49,45 @@ class Config:
     # Hazard smoothing / alerting
     ema_alpha: float = 0.7  # more responsive (less lag) with short window
     early_thresh: float = 0.2 # starting value was 0.35
-    early_persist: int = 2  # 0.2s persistence at 10 FPS to reduce flicker
+    early_persist: int = 2  # PC default: 0.2 s at 10 FPS; Pi uses 1 (see for_pi)
     high_thresh: float = 0.60
     critical_thresh: float = 0.80
     hysteresis: float = 0.05
 
-    pose_backend: str = "ultralytics"  # "ultralytics" (PC) or "hailo" (Pi)
-    yolo_pt_path: str = "models/yolov8m-pose.pt"
-    yolo_hef_path: str = "models/yolov8m-pose.hef"
+    # Pose backend — path used depends on backend
+    pose_backend: str = "ultralytics"  # PC default; Pi uses "hailo" (see for_pi)
+    yolo_pt_path:  str = "models/yolov8m-pose.pt"          # PC — ultralytics .pt weights
+    yolo_hef_path: str = "/home/pi/hailo-rpi5-examples/resources/models/hailo8/yolov8m_pose.hef"  # Pi — Hailo HEF
     yolo_conf: float = 0.25
-    yolo_iou: float = 0.5
+    yolo_iou:  float = 0.5
+
+    # ── Named platform presets ─────────────────────────────────────────────────
+
+    @classmethod
+    def for_pc(cls) -> "Config":
+        """
+        Development PC preset (default values).
+        - Pose: ultralytics YOLOv8m (CPU or CUDA), ~30-50 ms with GPU
+        - Flow: 600 sample points, ~20 ms on a desktop CPU
+        - Alert: persist=2 (0.2 s at 10 FPS inference)
+        """
+        return cls()
+
+    @classmethod
+    def for_pi(cls) -> "Config":
+        """
+        Raspberry Pi 5 + Hailo AI HAT+ preset.
+        - Pose: YOLOv8m HEF on Hailo NPU, ~174 ms
+        - Flow: 600 sample points (same as PC) — needed because uniform clothing
+          has very few trackable pixels; reducing to 300 causes lk_flow to find
+          < 2 good points on the torso ROI and return None (flow_ok = 0)
+        - Alert: persist=1 — 1 step is enough at ~1-4 Hz effective inference rate
+        Total: ~174 + 106 + 15 = ~295 ms → ~3-4 Hz → gap ~9 frames at 30 fps
+        """
+        return cls(
+            pose_backend  = "hailo",
+            early_persist = 1,      # at ~1 Hz inference, 1 step ≈ 1 s of sustained attack
+        )
 
 
 # Feature names for 51-dimensional raw feature vector
