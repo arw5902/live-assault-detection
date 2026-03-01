@@ -172,13 +172,21 @@ def build_features(
     ty1 = max(0, int(torso_c[1] - side/2)); ty2 = min(h-1, int(torso_c[1] + side/2))
     roi_torso = (tx1,ty1,tx2,ty2)
 
-    # lower ROI centered at mid-hip if possible else torso
-    # (use torso center for simplicity; can refine)
+    # lower ROI: hip-to-ankle region, below (not overlapping) the torso ROI.
+    # Anchored at mid-hip y: prefer actual hip keypoints; fall back to
+    # torso_c + torso_s/2 (geometric hip from torso centre/scale).
+    # Width is 1.5×torso_s to capture stance changes and kick/lunge leg spread.
     lh_side_w = 1.5 * torso_s
-    lh_side_h = 1.2 * torso_s
-    lx1 = max(0, int(torso_c[0] - lh_side_w/2)); lx2 = min(w-1, int(torso_c[0] + lh_side_w/2))
-    ly1 = max(0, int(torso_c[1] - lh_side_h/2 + 0.4*torso_s)); ly2 = min(h-1, int(torso_c[1] + lh_side_h/2 + 0.4*torso_s))
-    roi_lower = (lx1,ly1,lx2,ly2)
+    if (kp_valid(kps, COCO17["l_hip"], cfg.kp_conf_thresh) and
+            kp_valid(kps, COCO17["r_hip"], cfg.kp_conf_thresh)):
+        hip_mid_y = float((kps[COCO17["l_hip"], 1] + kps[COCO17["r_hip"], 1]) / 2.0)
+    else:
+        hip_mid_y = float(torso_c[1] + 0.5 * torso_s)
+    lx1 = max(0, int(torso_c[0] - lh_side_w / 2))
+    lx2 = min(w - 1, int(torso_c[0] + lh_side_w / 2))
+    ly1 = max(0, int(hip_mid_y))
+    ly2 = min(h - 1, int(hip_mid_y + 2.0 * torso_s)) # changed from 1.5 to 2.0
+    roi_lower = (lx1, ly1, lx2, ly2)
 
     # Defaults
     trans_signed_torso=trans_torso=div_torso=div_ratio_torso=0.0
@@ -197,19 +205,27 @@ def build_features(
             mean_v = np.mean(v_bg, axis=0)
             bg_coh = float(np.linalg.norm(mean_v) / (np.mean(np.linalg.norm(v_bg, axis=1)) + 1e-6))
 
-        # torso ROI
+        # torso ROI — try tight square first; fall back to full person bbox when
+        # uniform clothing gives < 2 trackable points (plain shirt, etc.).
         pts_t = sample_points_in_box(*roi_torso, max_points=cfg.max_flow_points, margin=2)
         p0_t, p1_t, v_t = lk_flow(prev_gray, curr_gray, pts_t, cfg.lk_win_size, cfg.lk_max_level, crit)
+        if v_t is None:
+            pts_t = sample_points_in_box(*roi_person, max_points=cfg.max_flow_points, margin=2)
+            p0_t, p1_t, v_t = lk_flow(prev_gray, curr_gray, pts_t, cfg.lk_win_size, cfg.lk_max_level, crit)
         if v_t is not None and vbg_ok:
             v_t2 = v_t - vbg_med.reshape(1,2)
             trans_signed_torso, trans_torso, div_torso, div_ratio_torso = radial_tangential_stats(p0_t, v_t2, torso_c)
             flow_ok = 1.0
 
         # lower ROI — use its own center for decomposition so forward leg motion
-        # is correctly classified as radial (approaching), not tangential
+        # is correctly classified as radial (approaching), not tangential.
+        # Fall back to full person bbox when legs are off-frame or heavily occluded.
         lower_c = np.array([(lx1+lx2)/2.0, (ly1+ly2)/2.0], dtype=np.float32)
         pts_l = sample_points_in_box(*roi_lower, max_points=cfg.max_flow_points, margin=2)
         p0_l, p1_l, v_l = lk_flow(prev_gray, curr_gray, pts_l, cfg.lk_win_size, cfg.lk_max_level, crit)
+        if v_l is None:
+            pts_l = sample_points_in_box(*roi_person, max_points=cfg.max_flow_points, margin=2)
+            p0_l, p1_l, v_l = lk_flow(prev_gray, curr_gray, pts_l, cfg.lk_win_size, cfg.lk_max_level, crit)
         if v_l is not None and vbg_ok:
             v_l2 = v_l - vbg_med.reshape(1,2)
             trans_signed_low, trans_low, div_low, div_ratio_low = radial_tangential_stats(p0_l, v_l2, lower_c)

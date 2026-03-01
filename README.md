@@ -49,7 +49,7 @@ The system achieves 96.7% detection rate with 55.9% pre-contact warning rate and
 ### Hardware
 - **Minimum**: CPU with 4+ cores, 8GB RAM
 - **Recommended**: NVIDIA GPU with 4GB+ VRAM, 16GB RAM
-- **Deployment**: Raspberry Pi 5 compatible (with Hailo-8L accelerator)
+- **Edge Deployment**: Raspberry Pi 5 + Hailo-8 AI HAT+ (M.2 NPU, ~3–4 Hz inference)
 
 ### Software
 - Python 3.8+
@@ -86,9 +86,24 @@ pip install -r requirements.txt
 # Create models directory
 mkdir -p models
 
-# Download YOLOv8-Pose model
+# Download YOLOv8-Pose model (PC / Ultralytics backend)
 wget https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8m-pose.pt -O models/yolov8m-pose.pt
 ```
+
+### 5. Raspberry Pi 5 Setup (Hailo-8 NPU)
+
+No extra model download is needed — the HEF is bundled with hailo-rpi5-examples:
+
+```bash
+# Install HailoRT (follow Hailo's Pi 5 setup guide)
+# The HEF is already present at:
+ls /home/pi/hailo-rpi5-examples/resources/models/hailo8/yolov8m_pose.hef
+
+# Copy project to Pi, then run:
+python -m src.infer            # live camera (uses Config.for_pi() automatically)
+```
+
+The `pose_backend` switches automatically: `Config.for_pi()` selects the Hailo NPU; `Config.for_pc()` selects Ultralytics. See [Section 2.4 of DESIGN.md](docs/DESIGN.md#24-raspberry-pi-5-deployment-hailo-8-npu) for full technical details.
 
 ## 🏃 Quick Start
 
@@ -366,7 +381,7 @@ Pre-contactDetection/
 │   ├── train.py               # Training script with Focal Loss
 │   ├── evaluate.py            # Holdout evaluation
 │   ├── infer.py               # Real-time inference
-│   ├── pose_detector.py       # YOLOv8 pose detection wrapper
+│   ├── pose_detector.py       # YOLOv8 pose detection — dual backend (Ultralytics PC / Hailo Pi)
 │   ├── features.py            # Feature extraction (pose + flow, 51-dim)
 │   ├── flow.py                # Optical flow computation
 │   ├── tracker.py             # Simple bounding box tracker
@@ -382,7 +397,8 @@ Pre-contactDetection/
 │   ├── safe/                  # Holdout safe videos
 │   └── attack/                # Holdout attack videos
 ├── models/
-│   └── yolov8m-pose.pt        # YOLOv8-Pose weights
+│   └── yolov8m-pose.pt        # YOLOv8-Pose weights (PC training/inference)
+│   # Pi uses: /home/pi/hailo-rpi5-examples/resources/models/hailo8/yolov8m_pose.hef
 ├── outputs/
 │   ├── checkpoints/           # Model checkpoints (timestamped)
 │   └── logs/                  # Training/evaluation/importance logs
@@ -507,7 +523,7 @@ python -m src.evaluate holdout
 - [ ] Multi-person tracking and detection
 - [ ] Audio features integration
 - [ ] Transfer learning from larger datasets
-- [ ] Model quantization for edge deployment
+- [x] Edge deployment on Raspberry Pi 5 with Hailo-8 NPU
 - [ ] Real-time visualization GUI
 - [ ] REST API for deployment
 

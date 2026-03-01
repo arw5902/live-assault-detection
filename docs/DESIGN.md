@@ -10,6 +10,7 @@
 
 1. [System Overview](#1-system-overview)
 2. [Architecture](#2-architecture)
+   - [2.4 Raspberry Pi 5 Deployment (Hailo-8 NPU)](#24-raspberry-pi-5-deployment-hailo-8-npu)
 3. [Feature Engineering](#3-feature-engineering)
 4. [Model Architecture](#4-model-architecture)
 5. [Training Methodology](#5-training-methodology)
@@ -283,6 +284,109 @@ Alert Level Output
 │  • Persistence logic                                   │
 │  • Multi-level alerting                                │
 └────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 2.4 Raspberry Pi 5 Deployment (Hailo-8 NPU)
+
+### 2.4.1 Hardware Configuration
+
+- Raspberry Pi 5 (8 GB RAM)
+- Hailo-8 AI accelerator via M.2 HAT+
+- USB or CSI camera, 640×480 @ 30 FPS input video
+
+### 2.4.2 HEF Model
+
+The system uses the pre-compiled `yolov8m_pose.hef` from the **hailo-rpi5-examples** resource bundle (no recompilation required):
+
+```
+/home/pi/hailo-rpi5-examples/resources/models/hailo8/yolov8m_pose.hef
+```
+
+This HEF targets 640×640 input and emits 9 raw convolutional output tensors — 3 per detection stride — with **no** post-processing fused inside the HEF. All decoding (DFL, NMS, keypoint formula) is performed on the host CPU.
+
+| Tensor | Shape | dtype | Content |
+|--------|-------|-------|---------|
+| `conv59` | (1, 80, 80, 64) | uint8 | DFL box regression — stride 8 |
+| `conv60` | (1, 80, 80, 1) | uint8 | Person confidence — stride 8 |
+| `conv61` | (1, 80, 80, 51) | uint16 | Keypoints 17×(x,y,vis) — stride 8 |
+| `conv75` | (1, 40, 40, 64) | uint8 | DFL box regression — stride 16 |
+| `conv76` | (1, 40, 40, 1) | uint8 | Person confidence — stride 16 |
+| `conv77` | (1, 40, 40, 51) | uint16 | Keypoints 17×(x,y,vis) — stride 16 |
+| `conv90` | (1, 20, 20, 64) | uint8 | DFL box regression — stride 32 |
+| `conv91` | (1, 20, 20, 1) | uint8 | Person confidence — stride 32 |
+| `conv92` | (1, 20, 20, 51) | uint16 | Keypoints 17×(x,y,vis) — stride 32 |
+
+### 2.4.3 Dequantisation
+
+HailoRT returns **raw quantised integers** (uint8 for box/conf, uint16 for keypoints). Per-tensor quantisation parameters are read from the HEF at startup using the HailoRT API:
+
+```python
+for info in hef.get_output_vstream_infos():
+    qi = info.quant_info
+    self._out_quant[info.name] = (float(qi.qp_scale), float(qi.qp_zp))
+```
+
+Dequantisation: **float = (raw\_int − zero\_point) × scale**
+
+| Tensor group | Typical scale | Typical zp | Dequantised range |
+|---|---|---|---|
+| Conf C=1 (uint8) | ≈ 1/255 ≈ 0.0039 | 0 | [0.0, 1.0] — post-sigmoid |
+| Box DFL C=64 (uint8) | ≈ 0.07–0.08 | ≈ 73–87 | float logits |
+| Keypoints C=51 (uint16) | ≈ 0.0005 | ≈ 17 000–19 600 | ≈ [−7, +5] logits |
+
+### 2.4.4 Decode Differences vs. Standard Ultralytics
+
+Three decoding rules differ from the standard Ultralytics path:
+
+**1. Confidence — sigmoid already fused by the Hailo compiler**
+
+The Hailo compiler embeds sigmoid into the conf output: the dequantised scale ≈ 1/255 means values are already in [0, 1]. Applying `sigmoid()` a second time would push every zero-valued background anchor from 0.0 → 0.5, causing all ≈8 000 background anchors to fire simultaneously and produce a wildly jumping bbox. The dequantised value is compared directly to `conf_thresh`:
+
+```python
+conf_flat = conf_raw.reshape(N).astype(np.float32)   # already [0, 1]
+mask = conf_flat > conf_thresh
+```
+
+**2. Keypoint x, y — no sigmoid; multiply-and-offset formula only**
+
+The YOLOv8-pose `cv4` conv head outputs raw logits for x and y (no activation in the head). The correct host-side decode is:
+
+```
+kp_x = (kp_x_logit × 2.0 + grid_x) × stride
+kp_y = (kp_y_logit × 2.0 + grid_y) × stride
+```
+
+Dequantised logits in [−7, +5] produce pixel coordinates spanning the full image.
+Applying `sigmoid()` before the ×2 multiply clamps all keypoints to a ≈64 px band around the anchor centre (2 grid cells at stride 32), causing the **"crowded skeleton"** artefact where all 17 joints collapse to a tiny cluster at the anchor location.
+
+**3. Keypoint visibility — sigmoid applied**
+
+```python
+kp_vis = sigmoid(vis_logit)   # vis is a raw logit; sigmoid IS needed
+```
+
+### 2.4.5 Config Preset
+
+`Config.for_pi()` sets all Pi-specific overrides; `Config.for_pc()` remains unchanged for training and evaluation:
+
+```python
+@classmethod
+def for_pi(cls) -> "Config":
+    """Raspberry Pi 5 + Hailo-8 HAT+ preset."""
+    return cls(
+        pose_backend  = "hailo",
+        yolo_hef_path = "/home/pi/hailo-rpi5-examples/resources/models/hailo8/yolov8m_pose.hef",
+        early_persist = 1,   # 1 step ≈ sufficient at ~3-4 Hz inference rate
+    )
+```
+
+Run inference on the Pi with:
+
+```bash
+python -m src.infer                         # live camera
+python -m src.infer path/to/video.mp4       # recorded video
 ```
 
 ---
@@ -615,9 +719,11 @@ Two separate ROIs are processed independently:
 - Captures: approach speed, upper-body expansion, punch/grab wind-up (arm extends outward from torso centre)
 
 **Lower ROI** (`translation_signed_lower`, `translation_lower`, `divergence_lower`, `div_ratio_lower`):
-- Rectangle offset downward from torso centre (1.5 × torso width, 1.2 × torso height, shifted 0.4 × torso height down)
+- Rectangle **anchored at the actual hip midpoint**: `hip_mid_y = mean(l_hip.y, r_hip.y)` when both hips are visible; falls back to `torso_c[1] + 0.5 × torso_s` when hips are occluded
+- Width = 1.5 × torso_s, centred horizontally on the torso; extends **2.0 × torso_s downward** from `hip_mid_y` (covers hips → ankles)
 - Centre of decomposition = lower ROI centre (not torso centre)
 - Captures: leg/hip motion, kick preparation (leg extends outward from lower-body centre), tackle approach
+- Note: the previous design anchored the lower ROI 0.4 × torso_s below torso centre, causing ~67% overlap with the torso ROI and failing to cover the legs; anchoring at `hip_mid_y` eliminates the overlap and ensures feet coverage
 
 Using the **lower ROI's own centre** is important: if the torso centre were used instead, a forward leg stride (kick preparation) would appear mostly tangential (the leg moves downward, which is perpendicular to the radial direction from the torso), losing the approach signal. With the lower-body centre, the same leg stride correctly appears as a strong outward (radial) motion.
 
@@ -1946,11 +2052,24 @@ class Config:
     critical_thresh: float = 0.80 # CRITICAL threshold
     hysteresis: float = 0.05      # Threshold hysteresis
 
-    # Pose detection
-    pose_backend: str = "ultralytics"
-    yolo_pt_path: str = "models/yolov8m-pose.pt"
-    yolo_conf: float = 0.25       # Detection confidence
-    yolo_iou: float = 0.5         # NMS IoU threshold
+    # Pose detection — PC (ultralytics) backend
+    pose_backend: str = "ultralytics"   # "ultralytics" | "hailo"
+    yolo_pt_path:  str = "models/yolov8m-pose.pt"   # PC .pt weights
+    yolo_conf: float = 0.25       # Detection confidence threshold
+    yolo_iou:  float = 0.5        # NMS IoU threshold
+
+    # Pose detection — Hailo NPU backend (Pi 5 only)
+    # yolo_hef_path is overridden in Config.for_pi():
+    yolo_hef_path: str = "models/yolov8m_pose.hef"
+    #   Full path on Pi:
+    #   /home/pi/hailo-rpi5-examples/resources/models/hailo8/yolov8m_pose.hef
+```
+
+#### Platform Presets
+
+```python
+Config.for_pc()   # PC / development: ultralytics backend, yolov8m-pose.pt
+Config.for_pi()   # Pi 5 + Hailo-8:  hailo backend, yolov8m_pose.hef, early_persist=1
 ```
 
 ### 11.4 Dependencies

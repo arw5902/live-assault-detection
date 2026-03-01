@@ -58,6 +58,8 @@ class Config:
     pose_backend: str = "ultralytics"  # PC default; Pi uses "hailo" (see for_pi)
     yolo_pt_path:  str = "models/yolov8m-pose.pt"          # PC — ultralytics .pt weights
     yolo_hef_path: str = "/home/pi/hailo-rpi5-examples/resources/models/hailo8/yolov8m_pose.hef"  # Pi — Hailo HEF
+    #yolo_hef_path: str = "models/yolov8n-pose.hef"
+    #yolo_imgsz: int = 416   # The HEF on the Pi is for 416 x 416 images
     yolo_conf: float = 0.25
     yolo_iou:  float = 0.5
 

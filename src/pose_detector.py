@@ -45,7 +45,11 @@ def _decode_scale(box_raw, conf_raw, kps_raw, stride, conf_thresh):
     H, W = box_raw.shape[:2]
     N    = H * W
 
-    conf_flat = _sigmoid(conf_raw.reshape(N).astype(np.float32))
+    # conf is already in [0, 1] after dequantisation: the Hailo compiler fuses
+    # sigmoid into the conf output (scale ≈ 1/255, zp = 0).  Do NOT apply
+    # _sigmoid() again — that would push every near-zero background anchor to
+    # sigmoid(0.0) = 0.50, causing all ~8000 background anchors to fire.
+    conf_flat = conf_raw.reshape(N).astype(np.float32)
     mask = conf_flat > conf_thresh
     if not mask.any():
         return (np.empty((0, 4),     np.float32),
@@ -69,19 +73,23 @@ def _decode_scale(box_raw, conf_raw, kps_raw, stride, conf_thresh):
     y2 = (ay + ltrb[:, 3]) * stride
     boxes = np.stack([x1, y1, x2, y2], axis=1)   # (m, 4)
 
-    # Keypoint decode — Ultralytics formula:
-    #   kx = (sigmoid(kx_raw) * 2.0 + (anchor_x - 0.5)) * stride
-    #      = (sigmoid(kx_raw) * 2.0 + gx) * stride   [since ax - 0.5 == gx]
-    #   vis = sigmoid(vis_raw)
+    # Keypoint decode — Ultralytics YOLOv8-pose formula:
+    #   kp_x = (kp_x_raw * 2.0 + gx) * stride
+    #   kp_y = (kp_y_raw * 2.0 + gy) * stride
+    #   vis  = sigmoid(vis_raw)
     #
-    # NOTE: sigmoid() MUST be applied to x,y raw values before scaling.
-    # The Hailo HEF outputs large-magnitude raw logits (~56 000) for the
-    # position channels.  Without sigmoid the formula yields coordinates on
-    # the order of 900 000 px (way off-screen).  With sigmoid the saturated
-    # value is ≈ 1.0, giving kp_x ≈ (2 + gx) * stride — a valid pixel.
+    # The Pose head's cv4 conv outputs raw logits for x,y with NO sigmoid;
+    # sigmoid is only applied to visibility (3rd channel per keypoint).
+    # After dequantisation the x,y logits are in roughly [−7, +5], giving:
+    #   kp coordinate range ≈ (logit×2 + gx) × stride
+    # which can reach any pixel in the image — correct full-body range.
+    #
+    # Applying _sigmoid() to x,y (old approach) clamps them to [0,1] and
+    # restricts every keypoint to a 2-grid-cell band around the anchor
+    # centre (~64 px for stride 32), causing the "crowded skeleton" artefact.
     kps_f = kps_raw.reshape(N, 17, 3).astype(np.float32)[idx]
-    kp_x  = (_sigmoid(kps_f[:, :, 0]) * 2.0 + gx[:, None]) * stride
-    kp_y  = (_sigmoid(kps_f[:, :, 1]) * 2.0 + gy[:, None]) * stride
+    kp_x  = (kps_f[:, :, 0] * 2.0 + gx[:, None]) * stride
+    kp_y  = (kps_f[:, :, 1] * 2.0 + gy[:, None]) * stride
     kp_v  = _sigmoid(kps_f[:, :, 2])
     kps_out = np.stack([kp_x, kp_y, kp_v], axis=2)  # (m, 17, 3)
 
@@ -211,6 +219,11 @@ class PoseDetector:
         self._backend = "ultralytics"
 
     def _infer_ultralytics(self, frame: np.ndarray):
+        # r = self._model(frame,
+        #                 imgsz=self.cfg.yolo_imgsz,    # to be consistent with size 416 HEF on the Pi
+        #                 conf=self.cfg.yolo_conf,
+        #                 iou=self.cfg.yolo_iou,
+        #                 verbose=False)[0]
         r = self._model(frame,
                         conf=self.cfg.yolo_conf,
                         iou=self.cfg.yolo_iou,
@@ -252,6 +265,18 @@ class PoseDetector:
         iv_params = InputVStreamParams.make(ng)
         ov_params = OutputVStreamParams.make(ng)
 
+        # Per-output quantisation params for manual dequantisation.
+        # HailoRT returns uint8/uint16 raw integers; recover float logits with:
+        #   float_value = (raw_int - zero_point) * scale
+        self._out_quant = {}
+        for info in hef.get_output_vstream_infos():
+            qi = info.quant_info
+            self._out_quant[info.name] = (float(qi.qp_scale), float(qi.qp_zp))
+        # ── diagnostic: show what quant params were loaded ──────────────────
+        print("[Hailo quant] quant params loaded for:")
+        for n, (s, z) in self._out_quant.items():
+            print(f"  name='{n}'  scale={s:.6f}  zp={z:.1f}")
+
         # Keep inference context alive across frames to avoid per-call overhead
         self._pipeline  = InferVStreams(ng, iv_params, ov_params)
         self._activated = ng.activate(ngp)
@@ -271,9 +296,24 @@ class PoseDetector:
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         inp = np.expand_dims(img, axis=0)          # (1, H, W, 3) uint8
 
-        outputs = self._pipeline.infer({self._input_name: inp})
+        raw_outputs = self._pipeline.infer({self._input_name: inp})
 
-        # ── first-call diagnostic: print output tensor shapes & value ranges ──
+        # ── Dequantise: uint8/uint16 raw integers → float32 logits ───────────
+        # float = (raw - zero_point) * scale   (per-tensor params from HEF)
+        # No-op if HailoRT already returns float32.
+        outputs = {}
+        for name, arr in raw_outputs.items():
+            a = np.array(arr)
+            if a.dtype in (np.uint8, np.uint16):
+                if name in self._out_quant:
+                    scale, zp = self._out_quant[name]
+                    a = (a.astype(np.float32) - zp) * scale
+                else:
+                    print(f"[Hailo quant] WARN: no quant params for '{name}'"
+                          f" (dtype={a.dtype}) — raw values used, will cause wrong results")
+            outputs[name] = a
+
+        # ── first-call diagnostic: print dequantised shapes & value ranges ───
         if not getattr(self, '_hailo_debug_done', False):
             self._hailo_debug_done = True
             print("[Hailo debug] input  name :", self._input_name,

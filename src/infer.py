@@ -227,6 +227,8 @@ def run(video_source,
     """
     set_seed(seed=42, deterministic=True)
 
+    # Note Config.for_pi() will disable skeleton being displayed on screen, 
+    # probably due to hailo backend instead of ultralytics
     cfg      = Config.for_pi() if enable_pi else Config.for_pc()
     detector = PoseDetector(cfg)
     tracker  = SingleTargetTracker()
