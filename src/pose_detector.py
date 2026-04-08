@@ -186,6 +186,11 @@ def _postprocess(outputs, conf_thresh, iou_thresh, input_wh, orig_shape):
         kps17[:, 0] *= sx
         kps17[:, 1] *= sy
 
+    # Clip keypoint coordinates to frame bounds (rescaling can produce
+    # out-of-range values that corrupt downstream angle/distance features).
+    kps17[:, 0] = np.clip(kps17[:, 0], 0, ow - 1)
+    kps17[:, 1] = np.clip(kps17[:, 1], 0, oh - 1)
+
     return {"bbox": bbox, "det_conf": det_conf, "kps": kps17}
 
 

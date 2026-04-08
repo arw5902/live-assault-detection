@@ -121,9 +121,24 @@ def extract_sequences(video_path: str, label_mode: str, detector, cfg) -> Tuple[
     if len(log_scale) >= 2:
         dlog_scale_dt[1:] = (log_scale[1:] - log_scale[:-1]) / dt
 
+    # ── Phase E derivatives: wrist_y_rel (50), ankle_spread (52), nose_y_rel (54) ──
+    # Pattern: raw value at even index, derivative at odd index.
+    # Derivative valid only when both current and previous raw values are valid.
+    for raw_idx, deriv_idx in [(49, 50), (51, 52), (53, 54)]:
+        raw   = X[:, raw_idx]
+        v_raw = M[:, raw_idx] > 0.5
+        d_raw = np.zeros_like(raw)
+        d_mask = np.zeros_like(raw)
+        if len(raw) >= 2:
+            both_valid = v_raw[1:] & v_raw[:-1]
+            d_raw[1:]  = np.where(both_valid, (raw[1:] - raw[:-1]) / dt, 0.0)
+            d_mask[1:] = np.where(both_valid, 1.0, 0.0)
+        X[:, deriv_idx] = d_raw
+        M[:, deriv_idx] = d_mask
+
     # Add interaction features: motion × proximity coupling
     # These encode "motion is only threatening when person is close AND approaching"
-    # Append 3 new features after existing 48 → total 51 features
+    # Append 3 new features after existing 56 base → total 59 features
     trans_signed_torso = X[:, 32]   # signed: positive=approaching, negative=retreating
     divergence_torso = X[:, 34]     # torso divergence
     wrist_accel = X[:, 46]
@@ -133,9 +148,16 @@ def extract_sequences(video_path: str, label_mode: str, detector, cfg) -> Tuple[
     # A retreating person has trans_signed_torso < 0 → approach_rate = 0.
     approach_rate = np.maximum(dlog_scale_dt, 0.0) * np.maximum(trans_signed_torso, 0.0)
 
-    # expansion_proximity and acceleration_proximity still use log_scale as proximity weight
-    # (larger apparent size = person is closer = stronger signal weight)
-    proximity_weight = np.exp(log_scale * 0.1)
+    # Proximity weight: prefer log_scale (strict, index 47) when valid; fall back to
+    # log(torso_ht_px) (lenient, index 48) when log_scale is invalid (ok=0) so that
+    # a stale carry-forward doesn't inflate expansion_proximity for a far person.
+    # Exponent from cfg.proximity_exponent; must match features.py add_interaction_features().
+    ls_valid = M[:, 47] > 0.5          # log_scale valid mask
+    th_valid = M[:, 48] > 0.5          # torso_ht_px valid mask
+    scale_for_weight = log_scale.copy()                                   # default: log_scale (may be stale)
+    use_torso = (~ls_valid) & th_valid                                    # ls invalid but torso_ht_px valid
+    scale_for_weight[use_torso] = np.log(np.maximum(X[use_torso, 48], 1.0))  # log(torso_ht_px) fallback
+    proximity_weight = np.exp(scale_for_weight * cfg.proximity_exponent)
 
     expansion_proximity = divergence_torso * proximity_weight
     acceleration_proximity = wrist_accel * proximity_weight

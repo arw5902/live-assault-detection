@@ -13,14 +13,15 @@ from .config import Config
 from .model import HazardGRU
 from .pose_detector import PoseDetector
 from .tracker import SingleTargetTracker
-from .features import build_features, add_interaction_features, compute_torso_height_frac, TemporalDerivatives
-from .audio import AudioThreatDetector, fuse_scores
+from .features import build_features, add_interaction_features, compute_torso_height_frac
 from .utils import set_seed
 
-# BGR colours for each hazard level (binary: THREAT / NONE)
+# BGR colours for each hazard level
 LEVEL_COLOR = {
     "NONE":        (  0, 200,   0),  # green
-    "THREAT":      (  0,   0, 255),  # red
+    "PRE-CONTACT": (  0, 165, 255),  # orange
+    "HIGH":        (  0,  69, 255),  # red-orange
+    "CRITICAL":    (  0,   0, 255),  # red
 }
 
 # COCO-17 skeleton: pairs of keypoint indices to connect with a line
@@ -216,8 +217,7 @@ def run(video_source,
         enable_pi: bool     = True,
         verbose: bool       = False,
         debug: bool         = False,
-        simulate_live: bool = False,
-        no_audio: bool      = False):
+        simulate_live: bool = False):
     """
     Core inference loop — video file or live camera.
 
@@ -247,8 +247,6 @@ def run(video_source,
     # Note Config.for_pi() will disable skeleton being displayed on screen, 
     # probably due to hailo backend instead of ultralytics
     cfg      = Config.for_pi() if enable_pi else Config.for_pc()
-    if no_audio:
-        cfg.audio_enabled = False
     detector = PoseDetector(cfg)
     tracker  = SingleTargetTracker()
 
@@ -287,7 +285,10 @@ def run(video_source,
     bbox              = None
     kps               = None    # last known COCO-17 keypoints (17, 3)
 
-    deriv             = TemporalDerivatives()
+    prev_wrist_dist_l = None;  prev_wrist_dist_r = None
+    prev_wrist_vel_l  = 0.0;   prev_wrist_vel_r  = 0.0
+    prev_log_area     = None;  prev_dlog_area_dt = None
+    prev_log_scale    = None
     dt                = cfg.step_dt  # file-path default (= frame_stride/input_fps = 0.1 s)
     t_last_infer      = None         # wall-clock time of last processed frame (camera path)
 
@@ -372,17 +373,6 @@ def run(video_source,
     else:
         frame_period = None
         next_frame_t = None
-
-    # ── audio threat detector (file sources only for now) ─────────────────────
-    audio_scores = {}   # frame_idx → (audio_score, class_name)
-    if cfg.audio_enabled and not is_camera and isinstance(video_source, str):
-        _audio_det = AudioThreatDetector(device=str(device))
-        if _audio_det.available:
-            print(f"Pre-computing audio scores for {video_source} ...")
-            audio_scores = _audio_det.score_video(
-                video_source, fps_src, cfg.frame_stride, cfg.audio_window_sec)
-            print(f"Audio scores computed for {len(audio_scores)} frames")
-        del _audio_det  # free model memory
 
     # ── main loop ─────────────────────────────────────────────────────────────
     frame_idx = 0
@@ -491,9 +481,64 @@ def run(video_source,
             _t_flow = time.perf_counter() - _t1
             prev_bbox = bbox
 
-            # Temporal derivatives + interaction features — shared implementation.
-            dlog_scale_dt = deriv.update(x, m, frame_dt)
-            x, m = add_interaction_features(x, m, x[45], x[46], dlog_scale_dt, cfg=cfg)
+            log_area  = x[9]
+            dist_l    = x[19]   # dist_l_wrist_torso
+            dist_r    = x[20]   # dist_r_wrist_torso
+            log_scale = x[47]
+
+            # ── log_area derivatives (indices 10, 11) — mirrors evaluate.py ──
+            dlog_area_dt   = 0.0
+            d2log_area_dt2 = 0.0
+            have_log_area_deriv = prev_log_area is not None
+
+            if have_log_area_deriv:
+                dlog_area_dt = (log_area - prev_log_area) / frame_dt
+                if prev_dlog_area_dt is not None:
+                    d2log_area_dt2 = (dlog_area_dt - prev_dlog_area_dt) / frame_dt
+
+            prev_log_area     = log_area
+            prev_dlog_area_dt = dlog_area_dt
+
+            x[10] = dlog_area_dt;    m[10] = 1.0 if have_log_area_deriv else 0.0
+            x[11] = d2log_area_dt2;  m[11] = 1.0 if have_log_area_deriv else 0.0
+
+            # ── wrist velocity / acceleration (indices 45, 46) ────────────────
+            wrist_vel   = 0.0
+            wrist_accel = 0.0
+            have_wrist_deriv = prev_wrist_dist_l is not None
+
+            if have_wrist_deriv:
+                vel_l = (dist_l - prev_wrist_dist_l) / frame_dt
+                vel_r = (dist_r - prev_wrist_dist_r) / frame_dt
+                wrist_vel   = max(vel_l, vel_r)
+                accel_l     = (vel_l - prev_wrist_vel_l) / frame_dt
+                accel_r     = (vel_r - prev_wrist_vel_r) / frame_dt
+                wrist_accel = max(accel_l, accel_r)
+                prev_wrist_vel_l = vel_l
+                prev_wrist_vel_r = vel_r
+            else:
+                prev_wrist_vel_l = 0.0
+                prev_wrist_vel_r = 0.0
+
+            prev_wrist_dist_l = dist_l
+            prev_wrist_dist_r = dist_r
+
+            x[45] = wrist_vel;    m[45] = 1.0 if have_wrist_deriv else 0.0
+            x[46] = wrist_accel;  m[46] = 1.0 if have_wrist_deriv else 0.0
+
+            # ── log_scale derivative for approach_rate (index 48) ─────────────
+            # Guard: only update prev_log_scale when keypoints are reliable
+            # (m[47] > 0.5).  Invalid frames (ok=0) produce junk log_scale from
+            # the bbox-area fallback; including them causes spurious spikes.
+            log_scale_valid = (float(m[47]) > 0.5)
+            dlog_scale_dt = 0.0
+            if log_scale_valid and prev_log_scale is not None:
+                dlog_scale_dt = (log_scale - prev_log_scale) / frame_dt
+            if log_scale_valid:
+                prev_log_scale = log_scale
+
+            x, m = add_interaction_features(x, m, wrist_vel, wrist_accel,
+                                             dlog_scale_dt)
 
             xm = np.concatenate([x, m], axis=0).astype(np.float32)
             buf.append(xm)
@@ -510,22 +555,25 @@ def run(video_source,
                 hazard_ema = ((1 - cfg.ema_alpha) * hazard_ema
                               + cfg.ema_alpha * hazard_raw)
 
-                # Audio fusion (Option B): boost visual score when audio
-                # detects threat-related sounds.  No effect when audio_scores
-                # is empty (camera source, no audio track, PANNs not installed).
-                audio_score, audio_cls = audio_scores.get(frame_idx, (0.0, ""))
-                hazard_fused = fuse_scores(hazard_ema, audio_score,
-                                           cfg.audio_thresh, cfg.audio_boost_alpha)
-
-                if hazard_fused > early_thresh:
+                if hazard_ema > early_thresh:
                     persist += 1
                 else:
                     persist = max(0, persist - 1)
 
                 level = "NONE"
-                if hazard_fused > early_thresh and persist >= cfg.early_persist:
-                    level = "THREAT"
+                if   hazard_ema > cfg.critical_thresh: level = "CRITICAL"
+                elif hazard_ema > cfg.high_thresh:      level = "HIGH"
+                elif persist    >= cfg.early_persist:   level = "PRE-CONTACT"
 
+                # Torso-height-fraction proximity gate.
+                # Suppress alerts when the torso appears small in the frame
+                # (torso_height_frac < far_height_fraction), meaning the person
+                # is far away and unlikely to be an immediate threat.
+                #
+                #   torso_height_frac: ||hip_mid − shoulder_mid|| / frame_h.
+                #     2-D Euclidean, robust to camera tilt.
+                #     Returns 0.0 when keypoints are unavailable.
+                #
                 # Distance gate removed — all alerts pass regardless of subject distance.
                 log_scale_now     = float(x[47])           # kept for diagnostics
                 log_scale_ok      = (float(m[47]) > 0.5)   # kept for diagnostics
@@ -541,10 +589,8 @@ def run(video_source,
                 #   thf → torso_height_frac = ||hip_mid−shoulder_mid|| / frame_h
                 #   ls  → log_scale (ok=0 → keypoints invalid, using bbox fallback)
                 if debug:
-                    _aud_str = (f"  aud={audio_score:.3f}→fused={hazard_fused:.3f}"
-                                f"[{audio_cls}]") if audio_score > 0 else ""
                     print(f"t={t_s:.2f}s  frame={frame_idx}  "
-                          f"raw={hazard_raw:.3f}  ema={hazard_ema:.3f}{_aud_str}  "
+                          f"raw={hazard_raw:.3f}  ema={hazard_ema:.3f}  "
                           f"level={level}  "
                           f"thf={torso_height_frac:.3f}  "
                           f"ls={log_scale_now:.2f}(ok={int(log_scale_ok)})  "
@@ -555,10 +601,8 @@ def run(video_source,
                           f"dbg={dbg}")
                 elif verbose:
                     # Compact one-line summary per frame — less noisy than --debug.
-                    _aud_str = (f"  aud={audio_score:.3f}[{audio_cls}]"
-                                if audio_score > 0 else "")
                     print(f"t={t_s:.2f}s  frame={frame_idx}  "
-                          f"level={level}  ema={hazard_ema:.3f}{_aud_str}  "
+                          f"level={level}  ema={hazard_ema:.3f}  "
                           f"thf={torso_height_frac:.3f}  persist={persist}")
 
                 if record_path is not None:
@@ -610,8 +654,7 @@ def run(video_source,
 # ── eval-dir: run full live pipeline on a pre-recorded dataset ───────────────
 
 def run_on_file(video_path, cfg, model, device, detector, early_thresh,
-                verbose=False, debug=False, simulate_live=False,
-                audio_scores=None, ignore_start_sec=0.0):
+                verbose=False, debug=False, simulate_live=False):
     """
     Run the full live detection state machine on a pre-recorded video file.
 
@@ -625,52 +668,46 @@ def run_on_file(video_path, cfg, model, device, detector, early_thresh,
 
     Parameters
     ----------
-    video_path      : str         — path to .mp4 video file
-    cfg             : Config      — platform config (for_pc() or for_pi())
-    model           : HazardGRU   — loaded model in eval mode
-    device          : torch.device
-    detector        : PoseDetector
-    early_thresh    : float       — THREAT threshold (from meta.json best_threshold)
-    verbose         : bool        — collect per-GRU-frame timeline when True
-    debug           : bool        — print per-frame gate diagnostics (mirrors
-                                    run() console output; captured by TeeLogger)
-    ignore_start_sec: float       — ignore any THREAT detections in the first
-                                    N seconds of the video (default 0 = no skip)
+    video_path   : str         — path to .mp4 video file
+    cfg          : Config      — platform config (for_pc() or for_pi())
+    model        : HazardGRU   — loaded model in eval mode
+    device       : torch.device
+    detector     : PoseDetector
+    early_thresh : float       — PRE-CONTACT threshold (from meta.json)
+    verbose      : bool        — collect per-GRU-frame timeline when True
+    debug        : bool        — print per-frame gate diagnostics (mirrors
+                                 run() console output; captured by TeeLogger)
 
     Returns
     -------
     dict with keys:
-        first_precontact_frame : int   — first frame where level == THREAT (−1 if never)
-        all_threat_frames      : list  — every frame where level == THREAT
+        first_precontact_frame : int   — first frame where level != NONE (−1 if never)
+        first_high_frame       : int   — first frame where level ∈ {HIGH, CRITICAL}
+        first_critical_frame   : int   — first frame where level == CRITICAL
         max_hazard_raw         : float — max raw GRU output seen
         max_hazard_ema         : float — max hazard_ema seen
         timeline               : list  — per-frame dicts (empty when verbose=False)
     None if the video file cannot be opened.
     """
-    # Seed RNG so each video gets identical point sampling regardless of
-    # processing order within evaluate_dir().
-    set_seed(seed=42, deterministic=True)
-
     tracker = SingleTargetTracker()
     buf     = deque(maxlen=cfg.window_len)
 
-    # ── temporal state — mirrors run() exactly ───────────────────────────────
+    # ── temporal state — mirrors run() file-path branch exactly ───────────────
     prev_gray         = None
     prev_bbox         = None
     hazard_ema        = 0.0
     persist           = 0
     level             = "NONE"
-    deriv             = TemporalDerivatives()
+
+    prev_wrist_dist_l = None;  prev_wrist_dist_r = None
+    prev_wrist_vel_l  = 0.0;   prev_wrist_vel_r  = 0.0
+    prev_log_area     = None;  prev_dlog_area_dt = None
+    prev_log_scale    = None
     dt                = cfg.step_dt
 
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         return None
-
-    # Compute the frame index threshold for ignore_start_sec.
-    # Any THREAT detection at frame_idx < ignore_start_frame is suppressed.
-    _vid_fps = cap.get(cv2.CAP_PROP_FPS) or cfg.input_fps
-    ignore_start_frame = int(ignore_start_sec * _vid_fps) if ignore_start_sec > 0 else 0
 
     # simulate_live: pace every frame to the video's native FPS and use
     # actual wall-clock dt for feature derivatives — identical to run() camera path.
@@ -684,11 +721,9 @@ def run_on_file(video_path, cfg, model, device, detector, early_thresh,
         next_frame_t = None
         t_last_infer = None   # unused in non-live path
 
-    if audio_scores is None:
-        audio_scores = {}
-
     first_precontact_frame = -1
-    all_threat_frames      = []   # every frame where level == "THREAT"
+    first_high_frame       = -1
+    first_critical_frame   = -1
     max_hazard_raw         = 0.0
     max_hazard_ema         = 0.0
     timeline               = []
@@ -747,9 +782,56 @@ def run_on_file(video_path, cfg, model, device, detector, early_thresh,
         _t_flow = time.perf_counter() - _t1
         prev_bbox = bbox
 
-        # Temporal derivatives + interaction features — shared implementation.
-        dlog_scale_dt = deriv.update(x, m, frame_dt)
-        x, m = add_interaction_features(x, m, x[45], x[46], dlog_scale_dt, cfg=cfg)
+        log_area  = x[9]
+        dist_l    = x[19]   # dist_l_wrist_torso
+        dist_r    = x[20]   # dist_r_wrist_torso
+        log_scale = x[47]
+
+        # ── log_area derivatives (indices 10, 11) ─────────────────────────────
+        dlog_area_dt   = 0.0
+        d2log_area_dt2 = 0.0
+        have_log_area_deriv = prev_log_area is not None
+        if have_log_area_deriv:
+            dlog_area_dt = (log_area - prev_log_area) / frame_dt
+            if prev_dlog_area_dt is not None:
+                d2log_area_dt2 = (dlog_area_dt - prev_dlog_area_dt) / frame_dt
+        prev_log_area     = log_area
+        prev_dlog_area_dt = dlog_area_dt
+        x[10] = dlog_area_dt;    m[10] = 1.0 if have_log_area_deriv else 0.0
+        x[11] = d2log_area_dt2;  m[11] = 1.0 if have_log_area_deriv else 0.0
+
+        # ── wrist velocity / acceleration (indices 45, 46) ────────────────────
+        wrist_vel   = 0.0
+        wrist_accel = 0.0
+        have_wrist_deriv = prev_wrist_dist_l is not None
+        if have_wrist_deriv:
+            vel_l = (dist_l - prev_wrist_dist_l) / frame_dt
+            vel_r = (dist_r - prev_wrist_dist_r) / frame_dt
+            wrist_vel   = max(vel_l, vel_r)
+            accel_l     = (vel_l - prev_wrist_vel_l) / frame_dt
+            accel_r     = (vel_r - prev_wrist_vel_r) / frame_dt
+            wrist_accel = max(accel_l, accel_r)
+            prev_wrist_vel_l = vel_l
+            prev_wrist_vel_r = vel_r
+        else:
+            prev_wrist_vel_l = 0.0
+            prev_wrist_vel_r = 0.0
+        prev_wrist_dist_l = dist_l
+        prev_wrist_dist_r = dist_r
+        x[45] = wrist_vel;    m[45] = 1.0 if have_wrist_deriv else 0.0
+        x[46] = wrist_accel;  m[46] = 1.0 if have_wrist_deriv else 0.0
+
+        # ── log_scale derivative for approach_rate (index 48) ────────────────
+        # Guard: only update prev_log_scale when keypoints are valid (mirrors run()).
+        log_scale_valid = (float(m[47]) > 0.5)
+        dlog_scale_dt = 0.0
+        if log_scale_valid and prev_log_scale is not None:
+            dlog_scale_dt = (log_scale - prev_log_scale) / frame_dt
+        if log_scale_valid:
+            prev_log_scale = log_scale
+
+        x, m = add_interaction_features(x, m, wrist_vel, wrist_accel,
+                                        dlog_scale_dt)
 
         xm = np.concatenate([x, m], axis=0).astype(np.float32)
         buf.append(xm)
@@ -769,19 +851,15 @@ def run_on_file(video_path, cfg, model, device, detector, early_thresh,
                           + cfg.ema_alpha * hazard_raw)
             max_hazard_ema = max(max_hazard_ema, hazard_ema)
 
-            # Audio fusion (Option B)
-            audio_score, audio_cls = audio_scores.get(frame_idx, (0.0, ""))
-            hazard_fused = fuse_scores(hazard_ema, audio_score,
-                                       cfg.audio_thresh, cfg.audio_boost_alpha)
-
-            if hazard_fused > early_thresh:
+            if hazard_ema > early_thresh:
                 persist += 1
             else:
                 persist = max(0, persist - 1)
 
             level = "NONE"
-            if hazard_fused > early_thresh and persist >= cfg.early_persist:
-                level = "THREAT"
+            if   hazard_ema > cfg.critical_thresh: level = "CRITICAL"
+            elif hazard_ema > cfg.high_thresh:      level = "HIGH"
+            elif persist    >= cfg.early_persist:   level = "PRE-CONTACT"
 
             # Distance gate removed — all alerts pass regardless of subject distance.
             log_scale_now     = float(x[47])           # kept for diagnostics
@@ -793,11 +871,9 @@ def run_on_file(video_path, cfg, model, device, detector, early_thresh,
             #   thf → torso_height_frac = ||hip_mid−shoulder_mid|| / frame_h
             #   ls  → log_scale (ok=0 → keypoints invalid)
             if debug:
-                _aud_str = (f"  aud={audio_score:.3f}→fused={hazard_fused:.3f}"
-                            f"[{audio_cls}]") if audio_score > 0 else ""
                 print(f"  frame={frame_idx:5d}  "
-                      f"raw={hazard_raw:.3f}  ema={hazard_ema:.3f}{_aud_str}  "
-                      f"level={level:<8s}  "
+                      f"raw={hazard_raw:.3f}  ema={hazard_ema:.3f}  "
+                      f"level={level:<11s}  "
                       f"thf={torso_height_frac:.3f}  "
                       f"ls={log_scale_now:.2f}(ok={int(log_scale_ok)})  "
                       f"persist={persist}  "
@@ -807,11 +883,14 @@ def run_on_file(video_path, cfg, model, device, detector, early_thresh,
                       f"total={(_t_pose+_t_flow+_t_gru)*1000:.0f}ms  "
                       f"dbg={dbg}")
 
-            # Record detection frames (skip the first ignore_start_sec of video).
-            if level == "THREAT" and frame_idx >= ignore_start_frame:
+            # Record first detection per alert level (after gate suppression).
+            if level != "NONE":
                 if first_precontact_frame == -1:
                     first_precontact_frame = frame_idx
-                all_threat_frames.append(frame_idx)
+                if level in ("HIGH", "CRITICAL") and first_high_frame == -1:
+                    first_high_frame = frame_idx
+                if level == "CRITICAL" and first_critical_frame == -1:
+                    first_critical_frame = frame_idx
 
             if verbose:
                 timeline.append({
@@ -819,9 +898,6 @@ def run_on_file(video_path, cfg, model, device, detector, early_thresh,
                     "level":            level,
                     "hazard_raw":       round(hazard_raw, 4),
                     "hazard_ema":       round(hazard_ema, 4),
-                    "hazard_fused":     round(hazard_fused, 4),
-                    "audio_score":      round(audio_score, 4),
-                    "audio_cls":        audio_cls,
                     "torso_height_frac": round(torso_height_frac, 4),
                     "log_scale":         round(log_scale_now, 3),
                     "persist":          persist,
@@ -833,7 +909,8 @@ def run_on_file(video_path, cfg, model, device, detector, early_thresh,
 
     return {
         "first_precontact_frame": first_precontact_frame,
-        "all_threat_frames":      all_threat_frames,
+        "first_high_frame":       first_high_frame,
+        "first_critical_frame":   first_critical_frame,
         "max_hazard_raw":         max_hazard_raw,
         "max_hazard_ema":         max_hazard_ema,
         "timeline":               timeline,
@@ -841,7 +918,7 @@ def run_on_file(video_path, cfg, model, device, detector, early_thresh,
 
 
 def evaluate_dir(eval_dir, verbose=False, debug=False, enable_pi=False,
-                 simulate_live=False, no_audio=False):
+                 simulate_live=False):
     """
     Evaluate the FULL live detection pipeline on a pre-recorded dataset.
 
@@ -850,34 +927,24 @@ def evaluate_dir(eval_dir, verbose=False, debug=False, enable_pi=False,
     of evaluate.py's simpler raw-hazard scoring.  Results therefore match
     real-world deployment more accurately than evaluate.py.
 
-    Dataset layout:
+    Dataset layout (same as evaluate.py / data/ directory):
         eval_dir/
-            labels.json          — attack video labels
+            labels.json          — attack video labels (same schema as data/)
             attack/              — attack .mp4 files
-            safe/                — (optional) safe .mp4 files
+            safe/                — compliance/safe .mp4 files
 
     labels.json schema (per entry):
         {
             "video.mp4": {
-                "category":            "attack",
-                "first_stand_after_sit": <int>,  // person stands from chair
-                "last_backward_frame":   <int>,  // last frame of backward motion
-                "push_start_frame":      <int>,  // push/attack begins
-                "contact_frame":        <int>   // push/attack ends (contact)
+                "category":    "attack",
+                "onset_frame": <int>,   // compliance → attack transition
+                "attack_frame": <int>   // moment of first physical contact
             }, ...
         }
 
-    Detection zone classification:
-        before first_stand_after_sit                         → False Positive
-        between first_stand_after_sit and last_backward_frame → Silenced
-        between last_backward_frame and push_start_frame     → False Positive
-        between push_start_frame and contact_frame          → Early Detection
-            lead_time = contact_frame − detection_frame
-        after contact_frame                                 → Late Detection
-
     Parameters
     ----------
-    eval_dir  : str  — directory containing attack/, labels.json, optionally safe/
+    eval_dir  : str  — directory containing attack/, safe/, labels.json
     verbose   : bool — dump compact frame-by-frame timeline table per video
     debug     : bool — print full per-frame gate diagnostics (mirrors run()
                        console output); captured by TeeLogger → log file
@@ -894,8 +961,6 @@ def evaluate_dir(eval_dir, verbose=False, debug=False, enable_pi=False,
     set_seed(seed=42, deterministic=True)
 
     cfg = Config.for_pi() if enable_pi else Config.for_pc()
-    if no_audio:
-        cfg.audio_enabled = False
 
     with open("outputs/checkpoints/meta.json") as f:
         meta         = json.load(f)
@@ -912,13 +977,6 @@ def evaluate_dir(eval_dir, verbose=False, debug=False, enable_pi=False,
 
     detector = PoseDetector(cfg)
 
-    # ── audio threat detector (shared across all videos) ──────────────────────
-    audio_det = None
-    if cfg.audio_enabled:
-        audio_det = AudioThreatDetector(device=str(device))
-        if not audio_det.available:
-            audio_det = None
-
     labels_file = os.path.join(eval_dir, "labels.json")
     with open(labels_file) as f:
         labels = json.load(f)
@@ -930,8 +988,6 @@ def evaluate_dir(eval_dir, verbose=False, debug=False, enable_pi=False,
     print(f"Config     : {'Pi' if enable_pi else 'PC'}")
     print(f"GRU device : {device}")
     print(f"Live sim   : {'ON  (wall-clock dt, native-FPS pacing per video)' if simulate_live else 'OFF (fixed dt=step_dt, batch speed)'}")
-    print(f"Audio      : {'ON' if audio_det is not None else 'OFF'}")
-    print(f"Ignore     : first 12.0s of each video")
     print("=" * 80)
 
     attack_results = []
@@ -952,21 +1008,9 @@ def evaluate_dir(eval_dir, verbose=False, debug=False, enable_pi=False,
             print(f"Processing {video_name}...", end=" ", flush=True)
             if debug:
                 print(f"\n  [debug] {video_name}")
-
-            # Pre-compute audio scores for this video
-            vid_audio_scores = {}
-            if audio_det is not None:
-                _cap_tmp = cv2.VideoCapture(video_path)
-                _fps_tmp = _cap_tmp.get(cv2.CAP_PROP_FPS) or cfg.input_fps
-                _cap_tmp.release()
-                vid_audio_scores = audio_det.score_video(
-                    video_path, _fps_tmp, cfg.frame_stride, cfg.audio_window_sec)
-
             result = run_on_file(video_path, cfg, model, device, detector,
                                  early_thresh, verbose=verbose, debug=debug,
-                                 simulate_live=simulate_live,
-                                 audio_scores=vid_audio_scores,
-                                 ignore_start_sec=12.0)
+                                 simulate_live=simulate_live)
 
             if result is None:
                 print("FAILED (cannot open)")
@@ -984,13 +1028,14 @@ def evaluate_dir(eval_dir, verbose=False, debug=False, enable_pi=False,
             if verbose and result["timeline"]:
                 _print_verbose_timeline(video_name, result["timeline"])
 
-    # ── safe videos (optional) ────────────────────────────────────────────────
+    # ── safe videos ───────────────────────────────────────────────────────────
+    print("\n--- Processing Safe Videos ---")
     safe_dir_path = os.path.join(eval_dir, "safe")
     if not os.path.exists(safe_dir_path):
-        print("\n(no safe/ directory found — skipping safe video evaluation)")
+        print(f"Warning: {safe_dir_path} not found")
     else:
         for video_file in sorted(os.listdir(safe_dir_path)):
-            if not video_file.lower().endswith(".mp4"):
+            if not video_file.endswith(".mp4"):
                 continue
 
             video_path = os.path.join(safe_dir_path, video_file)
@@ -998,21 +1043,9 @@ def evaluate_dir(eval_dir, verbose=False, debug=False, enable_pi=False,
             print(f"Processing {video_file}...", end=" ", flush=True)
             if debug:
                 print(f"\n  [debug] {video_file}")
-
-            # Pre-compute audio scores for this video
-            vid_audio_scores = {}
-            if audio_det is not None:
-                _cap_tmp = cv2.VideoCapture(video_path)
-                _fps_tmp = _cap_tmp.get(cv2.CAP_PROP_FPS) or cfg.input_fps
-                _cap_tmp.release()
-                vid_audio_scores = audio_det.score_video(
-                    video_path, _fps_tmp, cfg.frame_stride, cfg.audio_window_sec)
-
             result = run_on_file(video_path, cfg, model, device, detector,
                                  early_thresh, verbose=verbose, debug=debug,
-                                 simulate_live=simulate_live,
-                                 audio_scores=vid_audio_scores,
-                                 ignore_start_sec=12.0)
+                                 simulate_live=simulate_live)
 
             if result is None:
                 print("FAILED (cannot open)")
@@ -1030,177 +1063,117 @@ def evaluate_dir(eval_dir, verbose=False, debug=False, enable_pi=False,
             if verbose and result["timeline"]:
                 _print_verbose_timeline(video_file, result["timeline"])
 
-    # ── attack summary (zone-based classification) ──────────────────────────
+    # ── attack summary ────────────────────────────────────────────────────────
     print("\n" + "=" * 80)
-    print("ATTACK VIDEOS — Zone-Based Detection Analysis")
+    print("ATTACK VIDEOS — Multi-Level Warning Analysis")
     print("=" * 80)
-    print("Zones:  FP = before first_stand_after_sit OR between last_backward_frame")
-    print("             and push_start_frame")
-    print("        SILENCED = between first_stand_after_sit and last_backward_frame")
-    print("        EARLY    = between push_start_frame and contact_frame")
-    print("        LATE     = after contact_frame")
-    print("-" * 80)
 
-    early_detections   = []   # detected between push_start and push_end
-    late_detections    = []   # detected after push_end
-    silenced_only      = []   # all detections fell in the silenced zone
-    false_positives_attacks = []   # first non-silenced detection is FP
-    missed_attacks     = []   # no detection at all
-    lead_times         = []   # contact_frame − detection_frame (early only)
-    late_delays        = []   # detection_frame − contact_frame (late only)
-    videos_with_silenced = []  # videos that had any silenced detections
+    detected_attacks        = []
+    missed_attacks          = []
+    false_positives_attacks = []   # any level fires before onset_frame
+    lead_times              = []
+    lead_times_high         = []
+    lead_times_critical     = []
 
     for r in attack_results:
-        gt                   = r["ground_truth"]
-        first_stand_after_sit = gt["first_stand_after_sit"]
-        last_backward_frame  = gt["last_backward_frame"]
-        push_start_frame     = gt["push_start_frame"]
-        contact_frame       = gt["contact_frame"]
-        all_threats          = r.get("all_threat_frames", [])
+        gt           = r["ground_truth"]
+        attack_frame = gt["attack_frame"]
+        onset_frame  = gt.get("onset_frame", 0)
+        first_det    = r["first_precontact_frame"]
 
-        if not all_threats:
-            # No detection at all
-            missed_attacks.append(r)
-            print(f"{r['video_name']:50s} | MISSED "
-                  f"(max_ema={r['max_hazard_ema']:.3f})")
-            continue
-
-        # Count silenced detections and find first actionable detection
-        # Silenced zone: [first_stand_after_sit, last_backward_frame]
-        silenced_frames = [tf for tf in all_threats
-                           if first_stand_after_sit <= tf <= last_backward_frame]
-        n_silenced = len(silenced_frames)
-        sil_suffix = ""
-        if n_silenced > 0:
-            sil_tags = " ".join(f"Silenced@{sf}" for sf in silenced_frames[:5])
-            if n_silenced > 5:
-                sil_tags += f" ...+{n_silenced - 5} more"
-            sil_suffix = f"  [{sil_tags}]"
-            videos_with_silenced.append((r['video_name'], n_silenced,
-                                         silenced_frames))
-
-        first_actionable = -1
-        for tf in all_threats:
-            if tf < first_stand_after_sit:
-                # FP zone (before stand)
-                first_actionable = tf
-                break
-            elif tf <= last_backward_frame:
-                # Silenced zone — skip, look for a later detection
-                continue
+        if first_det >= 0:
+            if first_det < onset_frame:
+                # Alert fired during compliance phase → false positive
+                false_positives_attacks.append(r)
+                print(f"{r['video_name']:20s} | FP @ {first_det:4d} "
+                      f"(before onset@{onset_frame:4d})  "
+                      f"max_ema={r['max_hazard_ema']:.3f}")
             else:
-                # Past the silenced zone — actionable
-                first_actionable = tf
-                break
+                detected_attacks.append(r)
+                lead_time = attack_frame - first_det
+                lead_times.append(lead_time)
 
-        if first_actionable < 0:
-            # Every THREAT frame fell in the silenced zone
-            silenced_only.append(r)
-            print(f"{r['video_name']:50s} | SILENCED "
-                  f"(all {n_silenced} detections in silenced zone "
-                  f"[{first_stand_after_sit}–{last_backward_frame}])  "
-                  f"max_ema={r['max_hazard_ema']:.3f}"
-                  f"{sil_suffix}")
-            continue
+                # HIGH / CRITICAL lead times (only if first fire ≥ onset)
+                if r["first_high_frame"] >= onset_frame:
+                    lead_times_high.append(
+                        attack_frame - r["first_high_frame"])
+                if r["first_critical_frame"] >= onset_frame:
+                    lead_times_critical.append(
+                        attack_frame - r["first_critical_frame"])
 
-        # Classify the first actionable detection by zone
-        det = first_actionable
+                if first_det < attack_frame:    status = "PRE-CONTACT"
+                elif first_det == attack_frame: status = "ON-TIME"
+                else:                           status = "LATE"
 
-        if det < first_stand_after_sit:
-            # Before the person even stood up → FP
-            false_positives_attacks.append(r)
-            print(f"{r['video_name']:50s} | FP @ {det:5d} "
-                  f"(before stand@{first_stand_after_sit})  "
-                  f"max_ema={r['max_hazard_ema']:.3f}"
-                  f"{sil_suffix}")
+                warning_info = f"PC@{r['first_precontact_frame']:4d}"
+                if r["first_high_frame"] >= 0:
+                    warning_info += f" H@{r['first_high_frame']:4d}"
+                if r["first_critical_frame"] >= 0:
+                    warning_info += f" C@{r['first_critical_frame']:4d}"
 
-        elif det <= push_start_frame:
-            # Between last_backward_frame and push_start_frame → FP
-            false_positives_attacks.append(r)
-            print(f"{r['video_name']:50s} | FP @ {det:5d} "
-                  f"(between backward@{last_backward_frame} and "
-                  f"push_start@{push_start_frame})  "
-                  f"max_ema={r['max_hazard_ema']:.3f}"
-                  f"{sil_suffix}")
-
-        elif det <= contact_frame:
-            # Between push_start_frame and contact_frame → early detection
-            lead_time = contact_frame - det
-            lead_times.append(lead_time)
-            early_detections.append(r)
-            print(f"{r['video_name']:50s} | EARLY  "
-                  f"Detect@{det:5d}  "
-                  f"push_begins@{push_start_frame} contact@{contact_frame}  "
-                  f"Lead={lead_time:+5d} frames "
-                  f"({lead_time/cfg.input_fps:.2f}s)  "
-                  f"max_ema={r['max_hazard_ema']:.3f}"
-                  f"{sil_suffix}")
-
+                print(f"{r['video_name']:20s} | "
+                      f"Onset@{onset_frame:4d} Attack@{attack_frame:4d} "
+                      f"Lead={lead_time:+4d} [{status}] | "
+                      f"Warnings: {warning_info} | "
+                      f"max_ema={r['max_hazard_ema']:.3f}")
         else:
-            # After contact_frame → late detection
-            late_detections.append(r)
-            delay = det - contact_frame
-            late_delays.append(delay)
-            print(f"{r['video_name']:50s} | LATE   "
-                  f"Detect@{det:5d}  "
-                  f"push_begins@{push_start_frame} contact@{contact_frame}  "
-                  f"Delay={delay:+5d} frames "
-                  f"({delay/cfg.input_fps:.2f}s)  "
-                  f"max_ema={r['max_hazard_ema']:.3f}"
-                  f"{sil_suffix}")
+            missed_attacks.append(r)
+            print(f"{r['video_name']:20s} | MISSED "
+                  f"(max_ema={r['max_hazard_ema']:.3f})")
 
-    # ── attack statistics ──────────────────────────────────────────────────
-    n_total = len(attack_results)
-    n_early = len(early_detections)
-    n_late  = len(late_detections)
-    n_fp    = len(false_positives_attacks)
-    n_sil   = len(silenced_only)
-    n_miss  = len(missed_attacks)
+    detection_rate   = len(detected_attacks)        / max(1, len(attack_results))
+    miss_rate        = len(missed_attacks)           / max(1, len(attack_results))
+    fp_attack_rate   = len(false_positives_attacks)  / max(1, len(attack_results))
 
-    print("\n" + "-" * 80)
-    print(f"Early Detections : {n_early:3d}/{n_total}  ({n_early/max(1,n_total):.1%})")
-    print(f"Late  Detections : {n_late:3d}/{n_total}  ({n_late/max(1,n_total):.1%})")
-    print(f"False Positives  : {n_fp:3d}/{n_total}  ({n_fp/max(1,n_total):.1%})")
-    print(f"Silenced (only)  : {n_sil:3d}/{n_total}  ({n_sil/max(1,n_total):.1%})")
-    print(f"Missed           : {n_miss:3d}/{n_total}  ({n_miss/max(1,n_total):.1%})")
-
-    # Silenced detections summary (per-video)
-    n_vids_with_sil = len(videos_with_silenced)
-    total_sil_frames = sum(cnt for _, cnt, _ in videos_with_silenced)
-    print(f"\n--- Silenced Zone Detections ---")
-    print(f"  Videos with silenced detections: {n_vids_with_sil}/{n_total}")
-    print(f"  Total silenced frames          : {total_sil_frames}")
-    if n_vids_with_sil > 0:
-        sil_counts = [cnt for _, cnt, _ in videos_with_silenced]
-        print(f"  Per-video: mean={np.mean(sil_counts):.1f}  "
-              f"median={np.median(sil_counts):.0f}  "
-              f"min={np.min(sil_counts)}  max={np.max(sil_counts)}")
+    print(f"\nDetection Rate : {detection_rate:.1%} "
+          f"({len(detected_attacks)}/{len(attack_results)})")
+    print(f"Missed Rate    : {miss_rate:.1%} "
+          f"({len(missed_attacks)}/{len(attack_results)})")
+    print(f"FP (pre-onset) : {fp_attack_rate:.1%} "
+          f"({len(false_positives_attacks)}/{len(attack_results)})")
 
     if lead_times:
-        print(f"\n--- Early Detection Lead Times (threshold={early_thresh:.2f}) ---")
+        pc_warnings     = [lt for lt in lead_times if lt > 0]
+        pc_warning_rate = len(pc_warnings) / max(1, len(lead_times))
+
+        print(f"\n--- PRE-CONTACT Level (threshold={early_thresh:.2f}) ---")
+        print(f"Pre-contact Warning Rate : {pc_warning_rate:.1%} "
+              f"({len(pc_warnings)}/{len(lead_times)} detected attacks)")
         print(f"  Mean Lead Time   : {np.mean(lead_times):.1f} frames "
               f"({np.mean(lead_times)/cfg.input_fps:.2f}s)")
         print(f"  Median Lead Time : {np.median(lead_times):.1f} frames "
               f"({np.median(lead_times)/cfg.input_fps:.2f}s)")
-        print(f"  Min  Lead Time   : {np.min(lead_times):.0f} frames "
-              f"({np.min(lead_times)/cfg.input_fps:.2f}s)")
-        print(f"  Max  Lead Time   : {np.max(lead_times):.0f} frames "
-              f"({np.max(lead_times)/cfg.input_fps:.2f}s)")
+        if pc_warnings:
+            print(f"  Pre-contact only : {np.mean(pc_warnings):.1f} frames "
+                  f"({np.mean(pc_warnings)/cfg.input_fps:.2f}s)")
 
-    # Overall detection timing (early + late), relative to contact_frame
-    # Positive = before contact (early), negative = after contact (late)
-    if lead_times or late_delays:
-        all_offsets = [t for t in lead_times] + [-d for d in late_delays]
-        print(f"\n--- Overall Detection Timing (early + late, n={len(all_offsets)}) ---")
-        print(f"  Mean  offset     : {np.mean(all_offsets):+.1f} frames "
-              f"({np.mean(all_offsets)/cfg.input_fps:+.2f}s)")
-        print(f"  Median offset    : {np.median(all_offsets):+.1f} frames "
-              f"({np.median(all_offsets)/cfg.input_fps:+.2f}s)")
-        print(f"  Best  (earliest) : {np.max(all_offsets):+.0f} frames "
-              f"({np.max(all_offsets)/cfg.input_fps:+.2f}s)")
-        print(f"  Worst (latest)   : {np.min(all_offsets):+.0f} frames "
-              f"({np.min(all_offsets)/cfg.input_fps:+.2f}s)")
-        print(f"  (positive = before contact, negative = after contact)")
+        if lead_times_high:
+            high_pc = [lt for lt in lead_times_high if lt > 0]
+            high_rate = len(lead_times_high) / max(1, len(detected_attacks))
+            print(f"\n--- HIGH Level (threshold={cfg.high_thresh:.2f}) ---")
+            print(f"HIGH Warning Rate  : {high_rate:.1%} "
+                  f"({len(lead_times_high)}/{len(detected_attacks)} detected attacks)")
+            print(f"  Mean Lead Time   : {np.mean(lead_times_high):.1f} frames "
+                  f"({np.mean(lead_times_high)/cfg.input_fps:.2f}s)")
+            print(f"  Median Lead Time : {np.median(lead_times_high):.1f} frames "
+                  f"({np.median(lead_times_high)/cfg.input_fps:.2f}s)")
+            if high_pc:
+                print(f"  Pre-contact HIGH : {len(high_pc)/max(1,len(lead_times_high)):.1%} "
+                      f"({len(high_pc)}/{len(lead_times_high)})")
+
+        if lead_times_critical:
+            crit_pc = [lt for lt in lead_times_critical if lt > 0]
+            crit_rate = len(lead_times_critical) / max(1, len(detected_attacks))
+            print(f"\n--- CRITICAL Level (threshold={cfg.critical_thresh:.2f}) ---")
+            print(f"CRITICAL Warn Rate : {crit_rate:.1%} "
+                  f"({len(lead_times_critical)}/{len(detected_attacks)} detected attacks)")
+            print(f"  Mean Lead Time   : {np.mean(lead_times_critical):.1f} frames "
+                  f"({np.mean(lead_times_critical)/cfg.input_fps:.2f}s)")
+            print(f"  Median Lead Time : {np.median(lead_times_critical):.1f} frames "
+                  f"({np.median(lead_times_critical)/cfg.input_fps:.2f}s)")
+            if crit_pc:
+                print(f"  Pre-contact CRIT : {len(crit_pc)/max(1,len(lead_times_critical)):.1%} "
+                      f"({len(crit_pc)}/{len(lead_times_critical)})")
 
     # ── safe video summary ────────────────────────────────────────────────────
     print("\n" + "=" * 80)
@@ -1214,7 +1187,7 @@ def evaluate_dir(eval_dir, verbose=False, debug=False, enable_pi=False,
         first_det = r["first_precontact_frame"]
         if first_det >= 0:
             false_positives.append(r)
-            print(f"{r['video_name']:50s} | FP @ frame {first_det}  "
+            print(f"{r['video_name']:20s} | FP @ frame {first_det}  "
                   f"(max_ema={r['max_hazard_ema']:.3f})")
         else:
             true_negatives.append(r)
@@ -1222,36 +1195,41 @@ def evaluate_dir(eval_dir, verbose=False, debug=False, enable_pi=False,
     fp_rate = len(false_positives) / max(1, len(safe_results))
     tn_rate = len(true_negatives)  / max(1, len(safe_results))
 
-    if safe_results:
-        print(f"\nFalse Positive Rate (safe) : {fp_rate:.1%} "
-              f"({len(false_positives)}/{len(safe_results)})")
-        print(f"True Negative Rate         : {tn_rate:.1%} "
-              f"({len(true_negatives)}/{len(safe_results)})")
-    else:
-        print("(no safe videos found)")
+    print(f"\nFalse Positive Rate (safe) : {fp_rate:.1%} "
+          f"({len(false_positives)}/{len(safe_results)})")
+    print(f"True Negative Rate         : {tn_rate:.1%} "
+          f"({len(true_negatives)}/{len(safe_results)})")
 
     # ── overall summary ───────────────────────────────────────────────────────
     print("\n" + "=" * 80)
     print("OVERALL SUMMARY")
     print("=" * 80)
-    print(f"Total Videos : {n_total + len(safe_results)}  "
-          f"(attacks={n_total}  safe={len(safe_results)})")
-    print(f"\nThreshold (THREAT) : {early_thresh:.2f}")
-    print(f"\nAttack Videos:")
-    print(f"  Early Detection  : {n_early/max(1,n_total):.1%}  ({n_early}/{n_total})")
-    print(f"  Late  Detection  : {n_late/max(1,n_total):.1%}  ({n_late}/{n_total})")
-    print(f"  False Positive   : {n_fp/max(1,n_total):.1%}  ({n_fp}/{n_total})")
-    print(f"  Silenced (only)  : {n_sil/max(1,n_total):.1%}  ({n_sil}/{n_total})")
-    print(f"  Silenced (any)   : {n_vids_with_sil/max(1,n_total):.1%}  ({n_vids_with_sil}/{n_total})")
-    print(f"  Missed           : {n_miss/max(1,n_total):.1%}  ({n_miss}/{n_total})")
+    print(f"Total Videos : {len(attack_results) + len(safe_results)}  "
+          f"(attacks={len(attack_results)}  safe={len(safe_results)})")
+    print(f"\nThresholds:")
+    print(f"  PRE-CONTACT : {early_thresh:.2f}")
+    print(f"  HIGH        : {cfg.high_thresh:.2f}")
+    print(f"  CRITICAL    : {cfg.critical_thresh:.2f}")
+    print(f"\nAttack Detection  : {detection_rate:.1%}")
+    print(f"FP (safe)         : {fp_rate:.1%}")
+    print(f"FP (pre-onset)    : {fp_attack_rate:.1%}")
     if lead_times:
-        print(f"\nEarly Detection Lead Time:")
-        print(f"  Mean  : {np.mean(lead_times):.1f} frames "
+        print(f"\nWarning Performance:")
+        print(f"  PRE-CONTACT : {pc_warning_rate:.1%} pre-contact | "
+              f"Mean Lead: {np.mean(lead_times):.1f} frames "
               f"({np.mean(lead_times)/cfg.input_fps:.2f}s)")
-        print(f"  Median: {np.median(lead_times):.1f} frames "
-              f"({np.median(lead_times)/cfg.input_fps:.2f}s)")
-    if safe_results:
-        print(f"\nSafe FP Rate      : {fp_rate:.1%}")
+        if lead_times_high:
+            h_pc_rate = len([lt for lt in lead_times_high if lt > 0]) / max(1, len(lead_times_high))
+            print(f"  HIGH        : {len(lead_times_high)}/{len(detected_attacks)} attacks | "
+                  f"{h_pc_rate:.1%} pre-contact | "
+                  f"Mean Lead: {np.mean(lead_times_high):.1f} frames "
+                  f"({np.mean(lead_times_high)/cfg.input_fps:.2f}s)")
+        if lead_times_critical:
+            c_pc_rate = len([lt for lt in lead_times_critical if lt > 0]) / max(1, len(lead_times_critical))
+            print(f"  CRITICAL    : {len(lead_times_critical)}/{len(detected_attacks)} attacks | "
+                  f"{c_pc_rate:.1%} pre-contact | "
+                  f"Mean Lead: {np.mean(lead_times_critical):.1f} frames "
+                  f"({np.mean(lead_times_critical)/cfg.input_fps:.2f}s)")
     print("=" * 80)
 
     print(f"\nEvaluation completed at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
@@ -1262,36 +1240,17 @@ def evaluate_dir(eval_dir, verbose=False, debug=False, enable_pi=False,
 
 def _print_verbose_timeline(video_name, timeline):
     """Print a formatted frame-by-frame timeline table for verbose mode."""
-    # Check if any frame has a non-zero audio score → show audio columns
-    has_audio = any(row.get("audio_score", 0) > 0 for row in timeline)
-
     print(f"\n  --- Verbose timeline: {video_name} ---")
-    if has_audio:
-        hdr = (f"  {'frame':>6}  {'level':>10}  {'raw':>6}  {'ema':>6}  "
-               f"{'fused':>6}  {'aud':>5}  {'audio_class':<18}  "
-               f"{'thf':>7}  {'ls':>6}  {'persist':>7}")
-    else:
-        hdr = (f"  {'frame':>6}  {'level':>10}  {'raw':>6}  {'ema':>6}  "
-               f"{'thf':>7}  {'ls':>6}  {'persist':>7}")
+    hdr = (f"  {'frame':>6}  {'level':>10}  {'raw':>6}  {'ema':>6}  "
+           f"{'thf':>7}  {'ls':>6}  {'persist':>7}")
     print(hdr)
     print("  " + "-" * (len(hdr) - 2))
     for row in timeline:
-        a_score = row.get("audio_score", 0.0)
-        a_cls   = row.get("audio_cls", "")
-        fused   = row.get("hazard_fused", row["hazard_ema"])
-        if has_audio:
-            print(f"  {row['frame']:>6}  {row['level']:>10}  "
-                  f"{row['hazard_raw']:>6.3f}  {row['hazard_ema']:>6.3f}  "
-                  f"{fused:>6.3f}  {a_score:>5.3f}  {a_cls:<18}  "
-                  f"{row['torso_height_frac']:>7.3f}  "
-                  f"{row['log_scale']:>6.3f}  "
-                  f"{row['persist']:>7}")
-        else:
-            print(f"  {row['frame']:>6}  {row['level']:>10}  "
-                  f"{row['hazard_raw']:>6.3f}  {row['hazard_ema']:>6.3f}  "
-                  f"{row['torso_height_frac']:>7.3f}  "
-                  f"{row['log_scale']:>6.3f}  "
-                  f"{row['persist']:>7}")
+        print(f"  {row['frame']:>6}  {row['level']:>10}  "
+              f"{row['hazard_raw']:>6.3f}  {row['hazard_ema']:>6.3f}  "
+              f"{row['torso_height_frac']:>7.3f}  "
+              f"{row['log_scale']:>6.3f}  "
+              f"{row['persist']:>7}")
     print()
 
 
@@ -1376,12 +1335,6 @@ if __name__ == "__main__":
              "a detection-rate / FP-rate report that reflects real-time performance "
              "without needing a live camera.  Has no effect on camera (int) sources.")
 
-    parser.add_argument(
-        "--no-audio", action="store_true",
-        help="Disable audio fusion even if panns_inference is installed.  "
-             "Useful for isolating visual-only performance or when the video "
-             "files have no meaningful audio track.")
-
     args = parser.parse_args()
 
     # ── eval-dir mode: evaluate a pre-recorded dataset ────────────────────────
@@ -1391,8 +1344,7 @@ if __name__ == "__main__":
                      verbose=args.verbose,
                      debug=args.debug,
                      enable_pi=args.pi,
-                     simulate_live=args.simulate_live,
-                     no_audio=args.no_audio)
+                     simulate_live=args.simulate_live)
         sys.exit(0)
 
     # ── live / file inference mode ────────────────────────────────────────────
@@ -1424,5 +1376,4 @@ if __name__ == "__main__":
         enable_pi=args.pi,
         verbose=args.verbose,
         debug=args.debug,
-        simulate_live=args.simulate_live,
-        no_audio=args.no_audio)
+        simulate_live=args.simulate_live)

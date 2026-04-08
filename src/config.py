@@ -7,7 +7,7 @@ class Config:
     The class-body defaults are PC values.
     Use Config.for_pc() or Config.for_pi() to get a platform-specific instance.
     """
-    data_root: str = "data"
+    data_root: str = "/Users/home/Downloads/train/data"
     safe_dir: str = "safe"
     attack_dir: str = "attack"
 
@@ -17,8 +17,8 @@ class Config:
 
     # Model window
     window_len: int = 5 # 0.5s at 10 FPS
-    step_dt: float = 0.1
-    safe_window_stride: int = 3
+    step_dt: float = 0.1 #10 FPS
+    safe_window_stride: int = 2
     attack_window_stride: int = 1
 
     # Keypoint validity
@@ -35,9 +35,29 @@ class Config:
     lk_criteria_eps: float = 0.03
     max_flow_points: int = 600  # 600 needed on both platforms: uniform clothing gives few trackable pts
 
+    # Background homography estimation (camera-motion compensation).
+    # Replaces simple median subtraction with a full projective transform estimated
+    # via RANSAC from background points — correctly handles camera yaw/pitch/roll.
+    # Falls back to median when RANSAC inlier count is below bg_min_inliers.
+    bg_ransac_thresh: float = 3.0   # reprojection error threshold in pixels
+    bg_min_inliers:   int   = 20    # min RANSAC inliers to trust homography; else median
+
+    # ROI sizing for optical flow decomposition (multiples of torso_scale).
+    torso_roi_scale:  float = 1.2   # side length of square torso ROI
+    lower_roi_scale:  float = 2.0   # height of lower-body ROI below hip midpoint
+
+    # log_scale validity guards — protect dlog_scale_dt from foreshortening artefacts.
+    bend_tilt_thresh: float = 35.0  # degrees from vertical; above → log_scale invalidated
+    hip_bottom_margin_px: float = 8.0  # min px from frame bottom for hip to be "not cropped"
+
+    # Proximity weight exponent for interaction features.
+    # exp(log_scale * proximity_exponent) creates distance-dependent scaling.
+    # 0.3 → ~57% more weight at close (ls≈5.5) vs far (ls≈4.0).
+    proximity_exponent: float = 0.3
+
     # Focal Loss
-    focal_gamma: float = 4.0 # was 3
-    focal_alpha: float = 0.25 # was 0.75
+    focal_gamma: float = 2.0 # was 4
+    focal_alpha: float = 0.75 # was 0.25
 
     # GRU
     gru_hidden: int = 64
@@ -46,13 +66,46 @@ class Config:
     batch_size: int = 64    # more windows per batch (typically feasible)
     epochs: int = 40        # short window = easier optimization; train a bit longer
 
-    # Hazard smoothing / alerting
+    # Hazard smoothing / alerting — binary THREAT / NONE detection
     ema_alpha: float = 0.7  # more responsive (less lag) with short window
-    early_thresh: float = 0.2 # starting value was 0.35
-    early_persist: int = 2  # PC default: 0.2 s at 10 FPS; Pi uses 1 (see for_pi)
-    high_thresh: float = 0.60
-    critical_thresh: float = 0.80
+    early_thresh: float = 0.2 # starting value was 0.35; overridden by meta.json best_threshold
+    early_persist: int = 2  # PC default: 0.2 s at 10 FPS; Pi may use 1 (see for_pi)
     hysteresis: float = 0.05
+
+    # Torso height fraction gate threshold (torso_height_px / frame_height).
+    # torso_height_px = Euclidean distance from shoulder midpoint to hip midpoint
+    # (compute_torso_height_frac() in features.py).
+    # Alerts are suppressed when the torso appears small in the frame (person
+    # is far away) → unlikely to be an immediate threat.
+    #   • Raise to suppress more distant-person FPs (more aggressive suppression).
+    #   • Lower to avoid suppressing close-person TPs (more conservative).
+    #
+    # Approximate torso_hf for a bodycam at chest height, 90° vFoV:
+    #   dist    torso_hf   note
+    #   1.0 m     0.30     arm's reach / very close
+    #   1.5 m     0.21     close
+    #   2.0 m     0.16     moderate
+    #   3.0 m     0.11     far
+    #   5.0 m     0.06     very far
+    #
+    # Rule of thumb: set threshold below the torso_hf at the closest FP distance
+    # and above the torso_hf at the farthest genuine TP distance.
+    far_height_fraction: float = 0.3
+
+    # Audio fusion (PANNs-based threat detection)
+    # Audio is optional — disabled automatically if panns_inference is not installed.
+    audio_enabled: bool = True          # set False to skip audio entirely
+    audio_window_sec: float = 1.0       # PANNs classification window length (seconds)
+    audio_thresh: float = 0.3           # min audio_score to activate boost
+    audio_boost_alpha: float = 0.25     # boost strength (0 = off, 1 = full)
+
+    # Inference and recording resolution — must match the training data resolution.
+    # PiCamera2 is already opened at this size natively.  Any other source
+    # (USB webcam, arbitrary video file) is resized to (infer_w × infer_h) before
+    # pose detection and optical flow, keeping pixel-magnitude features (log_scale,
+    # log_area, flow magnitudes) on the same scale as the training data.
+    infer_w: int = 640
+    infer_h: int = 480
 
     # Pose backend — path used depends on backend
     pose_backend: str = "ultralytics"  # PC default; Pi uses "hailo" (see for_pi)
@@ -78,13 +131,13 @@ class Config:
     @classmethod
     def for_pi(cls) -> "Config":
         """
-        Raspberry Pi 5 + Hailo AI HAT+ preset.
-        - Pose: YOLOv8m HEF on Hailo NPU, ~174 ms
+        Raspberry Pi 5 + Hailo AI HAT+ (26 TOPs, Hailo-8) preset.
+        - Pose: YOLOv8m HEF on Hailo-8 NPU, ~35 ms (observed); HEF compiled at 416×416
         - Flow: 600 sample points (same as PC) — needed because uniform clothing
           has very few trackable pixels; reducing to 300 causes lk_flow to find
           < 2 good points on the torso ROI and return None (flow_ok = 0)
         - Alert: persist=1 — 1 step is enough at ~1-4 Hz effective inference rate
-        Total: ~174 + 106 + 15 = ~295 ms → ~3-4 Hz → gap ~9 frames at 30 fps
+        Total: ~35 + 40 + 5 = ~80 ms typical → ~10-12 Hz → gap ~3 frames at 30 fps
         """
         return cls(
             pose_backend  = "hailo",
@@ -92,9 +145,11 @@ class Config:
         )
 
 
-# Feature names for 51-dimensional raw feature vector
+# Feature names for the full 59-dimensional feature vector:
+#   56 base features (indices 0-55) from build_features()
+#   + 3 interaction features (indices 56-58) from add_interaction_features()
 # These correspond EXACTLY to the features extracted in src/features.py
-# Model input is 102-dimensional: [51 features, 51 validity_masks] concatenated
+# Model input is 118-dimensional: [59 features, 59 validity_masks] concatenated
 # Changes vs previous version:
 #   - track_age removed (spurious predictor correlated with video length)
 #   - bg_flow_mag removed (dataset confounder; background already subtracted from flow vectors)
@@ -168,12 +223,28 @@ FEATURE_NAMES = [
     "wrist_height_asymmetry",
     "face_visibility",
 
-    # Dynamics (3 dims) - indices 45-47
+    # Dynamics (4 dims) - indices 45-48
     "max_wrist_extension_velocity",
     "max_wrist_extension_accel",
     "log_scale",
+    "torso_height_px",      # best-effort: single-side fallback, no hip_near_bottom/bend_like guards
 
-    # Interaction features (3 dims) - indices 48-50
+    # Wrist direction (2 dims) - indices 49-50
+    "wrist_y_rel",          # max wrist-hip vertical offset / bbox_h (raw position)
+    "d_wrist_y_rel_dt",     # temporal derivative of wrist_y_rel (raise/strike rate)
+
+    # Gait dynamics (2 dims) - indices 51-52
+    "ankle_spread",         # |ankle_L_x − ankle_R_x| / bbox_w (stride width)
+    "d_ankle_spread_dt",    # temporal derivative of ankle_spread (gait cadence)
+
+    # Head motion (2 dims) - indices 53-54
+    "nose_y_rel",           # (nose_y − shoulder_mid_y) / bbox_h (head position)
+    "d_nose_y_rel_dt",      # temporal derivative of nose_y_rel (ducking rate)
+
+    # Upper-lower body asynchrony (1 dim) - index 55
+    "upper_lower_async",    # |translation_torso − translation_lower| (desync signal)
+
+    # Interaction features (3 dims) - indices 56-58
     "approach_rate",
     "expansion_proximity",
     "acceleration_proximity",
