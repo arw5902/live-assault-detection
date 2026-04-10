@@ -143,7 +143,7 @@ data/
 ```
 holdout/
 ├── labels.json     # Ground truth annotations
-├── attack/         # Full attack videos (onset → end of violence)
+├── attack/         # Full attack videos (normal → onset → end of violence)
 │   ├── h1.mp4
 │   ├── h2.mp4
 │   └── ...
