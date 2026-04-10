@@ -2,16 +2,11 @@
 
 A real-time assault detection system that provides early warning alerts before physical contact occurs. Built using pose estimation, optical flow analysis, and GRU-based temporal modeling.
 
-## 🎯 Overview
+## Overview
 
-This system analyzes video streams to detect assault behavior **before contact happens**, providing multi-level warnings:
-- **PRE-CONTACT**: Early warning (target: 0.05-0.1s before contact)
-- **HIGH**: Elevated threat level
-- **CRITICAL**: Imminent contact
+This system analyzes video streams to detect assault behavior **before contact happens**, providing a binary **THREAT / NONE** classification with EMA-smoothed hazard scoring and persistence gating.
 
-The system achieves 96.7% detection rate with 55.9% pre-contact warning rate and 14.8% false positive rate on safe videos.
-
-## 📋 Table of Contents
+## Table of Contents
 
 - [Features](#features)
 - [System Requirements](#system-requirements)
@@ -25,15 +20,13 @@ The system achieves 96.7% detection rate with 55.9% pre-contact warning rate and
 - [Documentation](#documentation)
 - [License](#license)
 
-## ✨ Features
+## Features
 
 ### Core Capabilities
 - **Real-time Detection**: Processes video at 10 FPS (downsampled from 30 FPS)
-- **Multi-level Alerts**: Three escalating warning levels
-- **High Accuracy**: 96.7% detection rate, 14.8% false positive rate on safe videos
-- **Early Warning**: 55.9% of detected attacks warned before contact (mean lead 0.8 frames)
-- **Pose-based Features**: 51-dimensional feature vector from body keypoints and optical flow
-- **Optical Flow Analysis**: Radial/tangential motion decomposition
+- **Binary Threat Detection**: Single THREAT level with EMA smoothing and persistence gating
+- **Pose-based Features**: 59-dimensional feature vector from body keypoints and optical flow
+- **Optical Flow Analysis**: Camera-compensated radial/tangential motion decomposition
 - **Temporal Modeling**: GRU neural network for sequence analysis
 
 ### Technical Features
@@ -44,12 +37,12 @@ The system achieves 96.7% detection rate with 55.9% pre-contact warning rate and
 - **EMA Smoothing**: Reduces detection flicker
 - **Persistence Logic**: Reduces false alarms
 
-## 🖥️ System Requirements
+## System Requirements
 
 ### Hardware
 - **Minimum**: CPU with 4+ cores, 8GB RAM
 - **Recommended**: NVIDIA GPU with 4GB+ VRAM, 16GB RAM
-- **Edge Deployment**: Raspberry Pi 5 + Hailo-8 AI HAT+ (M.2 NPU, ~3–4 Hz inference)
+- **Edge Deployment**: Raspberry Pi 5 + Hailo-8 AI HAT+ (M.2 NPU, ~10-12 Hz inference)
 
 ### Software
 - Python 3.8+
@@ -58,7 +51,7 @@ The system achieves 96.7% detection rate with 55.9% pre-contact warning rate and
 - PyTorch 2.0+
 - Ultralytics YOLOv8
 
-## 🚀 Installation
+## Installation
 
 ### 1. Clone Repository
 
@@ -105,21 +98,12 @@ python -m src.infer            # live camera (uses Config.for_pi() automatically
 
 The `pose_backend` switches automatically: `Config.for_pi()` selects the Hailo NPU; `Config.for_pc()` selects Ultralytics. See [Section 2.4 of DESIGN.md](docs/DESIGN.md#24-raspberry-pi-5-deployment-hailo-8-npu) for full technical details.
 
-## 🏃 Quick Start
+## Quick Start
 
 ### Inference on Video
 
 ```bash
 python -m src.infer path/to/video.mp4
-```
-
-Output:
-```
-t=0.50s hazard=0.123 level=NONE
-t=0.60s hazard=0.234 level=NONE
-t=0.70s hazard=0.456 level=PRE-CONTACT
-t=0.80s hazard=0.678 level=HIGH
-t=0.90s hazard=0.823 level=CRITICAL
 ```
 
 ### Training
@@ -136,7 +120,7 @@ python -m src.train
 python -m src.evaluate holdout
 ```
 
-## 📚 Usage
+## Usage
 
 ### Data Preparation
 
@@ -147,7 +131,7 @@ data/
 │   ├── s1.mp4
 │   ├── s2.mp4
 │   └── ...
-└── attack/         # Attack videos (trimmed from onset to contact)
+└── attack/         # Attack videos (trimmed from onset to end of violence)
     ├── a1.mp4
     ├── a2.mp4
     └── ...
@@ -192,12 +176,12 @@ Edit `src/config.py` to customize parameters:
 ```python
 # Model window
 window_len: int = 5              # 0.5s temporal window
-safe_window_stride: int = 3      # Stride for safe videos
+safe_window_stride: int = 2      # Stride for safe videos
 attack_window_stride: int = 1    # Stride for attack videos (preserves coherence)
 
 # Focal Loss
-focal_gamma: float = 4.0         # Focus on hard examples (was 3); higher=more aggressive
-focal_alpha: float = 0.25        # Attack class weight (was 0.75)
+focal_gamma: float = 2.0         # Focus on hard examples
+focal_alpha: float = 0.75        # Attack class weight
 
 # GRU
 gru_hidden: int = 64             # Hidden units
@@ -206,22 +190,20 @@ lr: float = 1e-3                 # Learning rate
 batch_size: int = 64
 epochs: int = 40
 
-# Warning thresholds
-early_thresh: float = 0.2        # Initial PRE-CONTACT threshold (tuned during training)
-high_thresh: float = 0.60        # HIGH warning
-critical_thresh: float = 0.80    # CRITICAL warning
+# Warning threshold
+early_thresh: float = 0.2        # Initial THREAT threshold (tuned during training)
 ```
 
-## 🎓 Training
+## Training
 
 ### Training Pipeline
 
 1. **Data Loading**: Videos processed at 10 FPS with pose detection
-2. **Feature Extraction**: 51-dimensional features per frame (+ 51 validity masks = 102-dim input)
-3. **Windowing**: 5-frame sliding windows (safe: stride=3, attack: stride=1)
+2. **Feature Extraction**: 59-dimensional features per frame (+ 59 validity masks = 118-dim input)
+3. **Windowing**: 5-frame sliding windows (safe: stride=2, attack: stride=1)
 4. **Video-level Split**: 85% train, 15% validation (no data leakage)
 5. **Training**: Focal Loss optimization for 40 epochs
-6. **Threshold Tuning**: Sweep [0.15-0.80] to maximize F1 score
+6. **Threshold Tuning**: Sweep [0.30-0.70] to maximize F1 score
 7. **Model Saving**: Best model saved based on F1 score with timestamp filename
 
 ### Training Command
@@ -232,59 +214,70 @@ python -m src.train
 
 ### Training Output
 
-From `outputs/logs/train_20260214_151253.log`:
+From `outputs/logs/train_20260406_212358.log`:
 
 ```
 ================================================================================
 FEATURE CONFIGURATION VERIFICATION
 ================================================================================
-Model input dimension: 102 (features + masks)
-Number of raw features: 51
-Number of FEATURE_NAMES: 51
+Model input dimension: 118 (features + masks)
+Number of raw features: 59
+Number of FEATURE_NAMES: 59
 ✓ Feature names match actual features
 ================================================================================
 
-Focal Loss parameters: gamma=4.00, alpha=0.250
-  (gamma: higher=more focus on hard examples)
-  (alpha: higher=prioritize attack class/recall)
-  (class imbalance ratio: 1.45:1)
+Focal Loss: gamma=2.0, alpha=0.75
+  (class imbalance ratio: 3.38:1)
 
 Dataset window balance:
-  safe_videos=95 steps=10219 windows=3308 stride=3
-  attack_videos=149 steps=2826 windows=2230 stride=1
-  safe/attack window ratio = 1.48
+  safe_videos=161 steps=17117 windows=8276 stride=2
+  attack_videos=175 steps=3102 windows=2402 stride=1
+  safe/attack window ratio = 3.45
 
 Stratified video-level split (class-balanced):
-  Total videos: 243
-  Train videos: 203 (safe=78, attack=125)
-  Val videos: 40 (safe=17, attack=23)
+  Total videos: 335
+  Train videos: 288 (safe=137, attack=151)
+  Val videos: 47 (safe=24, attack=23)
 
 Train set balance:
-  Total windows: 4622 (83.5% of all windows)
-  Safe windows: 2736 (59.2%)
-  Attack windows: 1886 (40.8%)
-  Imbalance ratio: 1.45:1
+  Total windows: 8940 (83.7% of all windows)
+  Safe windows: 6898 (77.2%)
+  Attack windows: 2042 (22.8%)
+  Imbalance ratio: 3.38:1
 
-epoch 1/40 train=0.0132 val=0.0089 best_val=0.0089
-epoch 4/40 train=0.0060 val=0.0069 best_val=0.0069
-  New best F1: 0.896 at threshold 0.50 - Model saved!
-  Val Metrics @ thresh=0.50: Acc=0.924 Prec=0.920 Rec=0.872 F1=0.896
-epoch 9/40 train=0.0031 val=0.0054 best_val=0.0054
-  New best F1: 0.921 at threshold 0.55 - Model saved!
-  Val Metrics @ thresh=0.55: Acc=0.942 Prec=0.940 Rec=0.904 F1=0.921
+epoch 1/40 train=0.0326 val=0.0239 best_val=0.0239
+epoch 4/40 train=0.0158 val=0.0158 best_val=0.0158
+  ★ New best — F1=0.921 Rec=0.925 FP%=2.2% @ thresh=0.65 [best-F1] — Model saved!
+epoch 6/40 train=0.0116 val=0.0129 best_val=0.0129
 ...
-epoch 29/40 train=0.0009 val=0.0095 best_val=0.0054
-  New best F1: 0.936 at threshold 0.55 - Model saved!
-epoch 30/40 train=0.0009 val=0.0100 best_val=0.0054
-  Val Metrics @ thresh=0.55: Acc=0.953 Prec=0.952 Rec=0.922 F1=0.936
-...
-epoch 40/40 train=0.0005 val=0.0163 best_val=0.0054
+epoch 40/40 train=0.0030 val=0.0195 best_val=0.0129
 
 ================================================================================
-Training completed at 2026-02-14 15:36:45
-Best F1 score: 0.936 at threshold 0.55 (epoch 30)
-Model saved to: outputs/checkpoints/hazard_gru_20260214_151253.pt
+Training completed at 2026-04-06 22:04:42
+Best validation loss: 0.0129
+Best F1: 0.921  Recall: 0.925  at threshold 0.65 (epoch 5)
+Model saved to: outputs/checkpoints/hazard_gru_20260406_212358.pt (selected by best F1)
 ================================================================================
+
+  Threshold comparison (val set, n_neg=1378):
+  thresh   Prec    Rec     F1     FP%  note
+  ----------------------------------------------
+    0.30  0.500  0.986  0.664  25.76%
+    0.35  0.559  0.983  0.713  20.25%
+    0.40  0.630  0.981  0.767  15.02%
+    0.45  0.693  0.978  0.811  11.32%
+    0.50  0.773  0.972  0.861   7.47%
+    0.55  0.825  0.958  0.887   5.30%
+    0.60  0.881  0.950  0.914   3.34%
+    0.65  0.917  0.925  0.921   2.18%  ★ selected (best F1)
+    0.70  0.931  0.856  0.891   1.67%
+
+Top 5 Most Important Features:
+  1. expansion_proximity: 24.7% (F1 drop: +0.2999)
+  2. torso_height_px: 20.8% (F1 drop: +0.2526)
+  3. divergence_torso: 9.9% (F1 drop: +0.1201)
+  4. divergence_lower: 7.3% (F1 drop: +0.0886)
+  5. acceleration_proximity: 7.1% (F1 drop: +0.0867)
 ```
 
 ### Output Files
@@ -293,13 +286,17 @@ Model saved to: outputs/checkpoints/hazard_gru_20260214_151253.pt
 outputs/
 ├── checkpoints/
 │   └── hazard_gru_YYYYMMDD_HHMMSS.pt  # Best model weights (timestamped)
+├── plots/
+│   ├── pr_curve_YYYYMMDD_HHMMSS.png    # Precision-Recall curve
+│   └── roc_curve_YYYYMMDD_HHMMSS.png   # ROC curve
 └── logs/
     ├── train_YYYYMMDD_HHMMSS.log
+    ├── meta.json                        # Training metadata and threshold
     ├── evaluate_YYYYMMDD_HHMMSS.log
     └── feature_importance_YYYYMMDD_HHMMSS.json
 ```
 
-## 📊 Evaluation
+## Evaluation
 
 ### Evaluation Command
 
@@ -309,68 +306,69 @@ python -m src.evaluate holdout
 
 ### Evaluation Output
 
-From `outputs/logs/evaluate_20260215_125032.log` (HIGH/CRITICAL levels omitted):
+From `outputs/logs/evaluate_20260406_221217.log`:
 
 ```
 ================================================================================
 HOLDOUT EVALUATION - Pre-contact Detection
-Holdout directory: holdout
-Using threshold: 0.55 (from training optimization)
+Holdout directory: holdout/
+Using threshold: 0.65 (from training optimization)
 ================================================================================
 
 --- Processing Attack Videos ---
-Processing h13.mp4...        DETECTED (max_hazard=0.866)
-Processing h14.mp4...        DETECTED (max_hazard=0.805)
-Processing h15.mp4...        DETECTED (max_hazard=0.724)
+Processing h13.mp4... DETECTED (max_hazard=0.872)
+Processing h14.mp4... DETECTED (max_hazard=0.819)
+Processing h15.mp4... DETECTED (max_hazard=0.884)
 ...
-Processing h133_part7.mp4... MISSED   (max_hazard=0.502)
-Processing h133_part8.mp4... DETECTED (max_hazard=0.832)
-Processing h133_part9.mp4... DETECTED (max_hazard=0.762)
 
 --- Processing Safe Videos ---
-Processing h130_part3.mp4... FP (max_hazard=0.623)
-Processing h126.mp4...       OK (max_hazard=0.335)
-Processing h7.mp4...         OK (max_hazard=0.463)
-Processing h114.mp4...       FP (max_hazard=0.646)
-Processing h115.mp4...       FP (max_hazard=0.600)
-Processing h1_part1.mp4...   FP (max_hazard=0.880)
+Processing h130_part7.mp4... OK (max_hazard=0.520)
+Processing h126.mp4... OK (max_hazard=0.332)
+Processing h127_part6.mp4... OK (max_hazard=0.109)
 ...
 
 ================================================================================
-ATTACK VIDEOS - Multi-Level Warning Analysis
+ATTACK VIDEOS — Threat Detection Analysis
 ================================================================================
-h13.mp4    | Onset@   0 Attack@  32 Lead=  +5 [PRE-CONTACT] | Warnings: PC@  27
-h14.mp4    | Onset@ 140 Attack@ 164 Lead=  +2 [PRE-CONTACT] | Warnings: PC@ 162
-h17.mp4    | Onset@  78 Attack@  93 Lead=  -6 [LATE]        | Warnings: PC@  99
-h20.mp4    | Onset@  15 Attack@  36 Lead=  +0 [ON-TIME]     | Warnings: PC@  36
-h23.mp4    | Onset@  57 Attack@  74 Lead= +14 [PRE-CONTACT] | Warnings: PC@  60
-h130_part10.mp4 | FP @ 90 (before onset@ 156) first=0.692 max=0.875
-h133_part7.mp4  | MISSED (max_hazard=0.502)
+h13.mp4              | Onset@   0 Attack@  32 Detect@  18 Lead= +14 [LEAD]
+h14.mp4              | Onset@ 140 Attack@ 164 Detect@ 159 Lead=  +5 [LEAD]
+h17.mp4              | Onset@  78 Attack@  93 Detect@  90 Lead=  +3 [LEAD]
+h19.mp4              | Onset@   9 Attack@  38 Detect@  39 Lead=  -1 [LATE]
+h28.mp4              | Onset@  53 Attack@  72 Detect@  78 Lead=  -6 [LATE]
 ...
 
-Detection Rate: 96.7% (59/61)
-Missed Rate: 1.6% (1/61)
-False Positives (pre-onset detections): 1.6% (1/61)
+Detection Rate : 100.0% (60/60)
+Missed Rate    : 0.0% (0/60)
+FP (pre-onset) : 0.0% (0/60)
 
---- PRE-CONTACT Level (threshold=0.55) ---
-Pre-contact Warning Rate: 55.9% (33/59 detected attacks)
-  Mean Lead Time: 0.8 frames (0.03s)
-  Median Lead Time: 2.0 frames (0.07s)
-  Pre-contact warnings only: 7.4 frames (0.25s)
+--- THREAT Detection (threshold=0.65) ---
+Pre-contact Rate   : 76.7% (46/60 detected attacks)
+  Mean Lead Time   : 7.9 frames (0.26s)
+  Median Lead Time : 5.0 frames (0.17s)
 
 ================================================================================
 SAFE VIDEOS
 ================================================================================
-h130_part3.mp4  | FP @ frame 189 (max_hazard=0.623)
-h114.mp4        | FP @ frame  45 (max_hazard=0.646)
-h115.mp4        | FP @ frame 120 (max_hazard=0.600)
-h1_part1.mp4    | FP @ frame  84 (max_hazard=0.880)
 
-False Positive Rate (safe videos): 14.8% (4/27)
-True Negative Rate: 85.2% (23/27)
+False Positive Rate (safe) : 0.0% (0/27)
+True Negative Rate         : 100.0% (27/27)
+
+================================================================================
+OVERALL SUMMARY
+================================================================================
+Total Videos : 87  (attacks=60  safe=27)
+
+Threshold (THREAT) : 0.65
+
+Attack Detection  : 100.0%
+FP (safe)         : 0.0%
+
+Detection Performance:
+  Pre-contact : 76.7% | Mean Lead: 7.9 frames (0.26s)
+================================================================================
 ```
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 Pre-contactDetection/
@@ -382,7 +380,7 @@ Pre-contactDetection/
 │   ├── evaluate.py            # Holdout evaluation
 │   ├── infer.py               # Real-time inference
 │   ├── pose_detector.py       # YOLOv8 pose detection — dual backend (Ultralytics PC / Hailo Pi)
-│   ├── features.py            # Feature extraction (pose + flow, 51-dim)
+│   ├── features.py            # Feature extraction (pose + flow, 59-dim)
 │   ├── flow.py                # Optical flow computation
 │   ├── tracker.py             # Simple bounding box tracker
 │   ├── pose_utils.py          # Pose keypoint utilities
@@ -401,6 +399,7 @@ Pre-contactDetection/
 │   # Pi uses: /home/pi/hailo-rpi5-examples/resources/models/hailo8/yolov8m_pose.hef
 ├── outputs/
 │   ├── checkpoints/           # Model checkpoints (timestamped)
+│   ├── plots/                 # PR and ROC curves
 │   └── logs/                  # Training/evaluation/importance logs
 ├── docs/
 │   └── DESIGN.md              # Detailed design specification
@@ -409,75 +408,84 @@ Pre-contactDetection/
 └── .gitignore
 ```
 
-## 🎯 Performance
+## Performance
 
-### Current Metrics (Holdout Set — 88 videos: 61 attack, 27 safe)
+### Current Metrics (Holdout Set — 87 videos: 60 attack, 27 safe)
 
-Evaluated at threshold **0.55** (auto-tuned during training).
+Evaluated at threshold **0.65** (auto-tuned during training).
 
-#### Attack Detection (61 attack videos)
+#### Attack Detection (60 attack videos)
 
 | Metric | Value |
 |--------|-------|
-| Detection Rate | **96.7%** (59/61) |
-| Missed Rate | 1.6% (1/61) |
-| False Positives (pre-onset detections) | 1.6% (1/61) |
+| Detection Rate | 100.0% (60/60) |
+| Missed Rate | 0.0% (0/60) |
+| FP (pre-onset) | 0.0% (0/60) |
 
 #### Safe Video False Positive Rate (27 safe videos)
 
 | Metric | Value |
 |--------|-------|
-| False Positive Rate | **14.8%** (4/27) |
-| True Negative Rate | 85.2% (23/27) |
+| False Positive Rate | 0.0% (0/27) |
+| True Negative Rate | 100.0% (27/27) |
 
-#### Pre-Contact Detection (of 59 detected attacks)
+#### Pre-Contact Detection (of 60 detected attacks)
 
 | Metric | Value |
 |--------|-------|
-| Pre-contact Detection Rate | **55.9%** (33/59) |
-| Mean Lead Time | 0.8 frames (0.03s) |
-| Median Lead Time | 2.0 frames (0.07s) |
+| Pre-contact Detection Rate | 76.7% (46/60) |
+| Mean Lead Time | 7.9 frames (0.26s) |
+| Median Lead Time | 5.0 frames (0.17s) |
 
 *Pre-contact detection = alert triggered before the labeled `attack_frame` (first physical contact).*
 
-### Validation Set Best Metrics (epoch 30, threshold=0.55)
+### Validation Set Best Metrics (epoch 5, threshold=0.65)
 
 | Accuracy | Precision | Recall | F1 Score |
 |----------|-----------|--------|----------|
-| 0.953    | 0.952     | 0.922  | **0.936** |
+| 0.967    | 0.917     | 0.925  | **0.921** |
 
 ### Model Specifications
 
 | Parameter | Value |
 |-----------|-------|
-| Input Features | 51 dimensions (+ 51 validity masks = 102-dim input) |
+| Input Features | 59 dimensions (+ 59 validity masks = 118-dim input) |
 | Window Length | 5 frames (0.5s) |
 | GRU Hidden Units | 64 |
 | Total Parameters | ~24K |
-| Inference Speed | ~10 FPS (CPU) |
+| Inference Speed | ~10-12 Hz (Pi 5 + Hailo-8) |
 | Model Size | <1 MB |
 
-## 📖 Documentation
+## Documentation
 
 - **[DESIGN.md](docs/DESIGN.md)**: Comprehensive design specification
   - System architecture
-  - Feature engineering details (51 features + 51 validity masks)
+  - Feature engineering details (59 features + 59 validity masks)
   - Model architecture
   - Training methodology
   - Algorithm details
 
-## 🛠️ Development
+## Development
 
 ### Running Tests
 
 ```bash
-# Test inference on sample video
-python -m src.infer data/attack/sample.mp4
+# Test inference on a video file
+python -m src.infer path/to/video.mp4
 
-# Test training on small dataset
+# Test inference with simulated live pacing (matches real-time Pi5 behavior)
+python -m src.infer path/to/video.mp4 --simulate-live
+
+# Live detection on Raspberry Pi 5 with Pi Camera Module
+python -m src.infer 0 --picamera2 --pi
+
+# Evaluate on a pre-recorded dataset directory
+python -m src.infer --eval-dir holdout/
+
+# Train model
 python -m src.train
 
-# Test evaluation
+# Holdout evaluation
 python -m src.evaluate holdout
 ```
 
@@ -493,7 +501,7 @@ python -m src.evaluate holdout
 2. Update hyperparameters in `src/config.py`
 3. Retrain model
 
-## 🐛 Troubleshooting
+## Troubleshooting
 
 ### Common Issues
 
@@ -508,7 +516,7 @@ python -m src.evaluate holdout
 - Ensure person is reasonably sized in frame (not too far)
 
 **Q: High false positive rate**
-- Increase PRE-CONTACT threshold in `config.py`
+- Increase THREAT threshold in `config.py`
 - Increase `early_persist` value for more stability
 - Retrain with more diverse safe videos
 
@@ -516,18 +524,17 @@ python -m src.evaluate holdout
 - Install PyTorch with CUDA: `pip install torch --index-url https://download.pytorch.org/whl/cu118`
 - Verify CUDA installation: `python -c "import torch; print(torch.cuda.is_available())"`
 
-## 🔮 Future Improvements
+## Future Improvements
 
 - [ ] Attention mechanism for improved temporal modeling
-- [ ] Bidirectional GRU for better context
 - [ ] Multi-person tracking and detection
 - [ ] Audio features integration
 - [ ] Transfer learning from larger datasets
 - [x] Edge deployment on Raspberry Pi 5 with Hailo-8 NPU
+- [ ] IMU-based ego-motion compensation
 - [ ] Real-time visualization GUI
-- [ ] REST API for deployment
 
-## 📝 Citation
+## Citation
 
 If you use this project in your research, please cite:
 
@@ -540,20 +547,20 @@ If you use this project in your research, please cite:
 }
 ```
 
-## 📄 License
+## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
 
-## 🙏 Acknowledgments
+## Acknowledgments
 
 - YOLOv8 by Ultralytics for pose estimation
 - PyTorch team for the deep learning framework
 - OpenCV community for computer vision tools
 
-## 📧 Contact
+## Contact
 
 For questions or issues, please open an issue on GitHub or contact [your.email@example.com](mailto:your.email@example.com).
 
 ---
 
-**Status**: Active Development | **Version**: 1.0.0 | **Last Updated**: February 2026
+**Status**: Active Development | **Version**: 1.0.0 | **Last Updated**: April 2026
