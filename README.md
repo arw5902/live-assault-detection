@@ -1,10 +1,10 @@
 # Pre-contact Detection System
 
-A real-time assault detection system that provides early warning alerts before physical contact occurs. Built using pose estimation, optical flow analysis, and GRU-based temporal modeling.
+An automatic, real-time assault detection system for body-worn cameras. Built using pose estimation, optical flow analysis, and GRU-based temporal modeling.
 
 ## Overview
 
-This system analyzes video streams to detect assault behavior **before contact happens**, providing a binary **THREAT / NONE** classification with EMA-smoothed hazard scoring and persistence gating.
+This system analyzes video streams to automatically detect assault behavior in real time, providing a binary **THREAT / NONE** classification with EMA-smoothed hazard scoring and persistence gating.
 
 ## Table of Contents
 
@@ -143,7 +143,7 @@ data/
 ```
 holdout/
 ├── labels.json     # Ground truth annotations
-├── attack/         # Full attack videos (normal → onset → contact)
+├── attack/         # Full attack videos (onset → end of violence)
 │   ├── h1.mp4
 │   ├── h2.mp4
 │   └── ...
@@ -285,13 +285,13 @@ Top 5 Most Important Features:
 ```
 outputs/
 ├── checkpoints/
-│   └── hazard_gru_YYYYMMDD_HHMMSS.pt  # Best model weights (timestamped)
+│   ├── hazard_gru_YYYYMMDD_HHMMSS.pt  # Best model weights (timestamped)
+│   └── meta.json                       # Training metadata and threshold
 ├── plots/
 │   ├── pr_curve_YYYYMMDD_HHMMSS.png    # Precision-Recall curve
 │   └── roc_curve_YYYYMMDD_HHMMSS.png   # ROC curve
 └── logs/
     ├── train_YYYYMMDD_HHMMSS.log
-    ├── meta.json                        # Training metadata and threshold
     ├── evaluate_YYYYMMDD_HHMMSS.log
     └── feature_importance_YYYYMMDD_HHMMSS.json
 ```
@@ -470,23 +470,23 @@ Evaluated at threshold **0.65** (auto-tuned during training).
 ### Running Tests
 
 ```bash
+# Train model
+python -m src.train
+
+# Holdout evaluation
+python -m src.evaluate holdout
+
 # Test inference on a video file
 python -m src.infer path/to/video.mp4
 
 # Test inference with simulated live pacing (matches real-time Pi5 behavior)
 python -m src.infer path/to/video.mp4 --simulate-live
 
-# Live detection on Raspberry Pi 5 with Pi Camera Module
-python -m src.infer 0 --picamera2 --pi
-
 # Evaluate on a pre-recorded dataset directory
 python -m src.infer --eval-dir holdout/
 
-# Train model
-python -m src.train
-
-# Holdout evaluation
-python -m src.evaluate holdout
+# Live detection on Raspberry Pi 5 with Pi Camera Module
+python -m src.infer 0 --picamera2 --pi
 ```
 
 ### Adding New Features
