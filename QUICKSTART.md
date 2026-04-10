@@ -39,16 +39,6 @@ python -c "from src.model import HazardGRU; print('✓ Installation successful!'
 python -m src.infer path/to/video.mp4
 ```
 
-**Output:**
-```
-Using detection threshold: 0.50 (optimized from training)
-t=0.50s hazard=0.123 level=NONE dbg={...}
-t=0.60s hazard=0.234 level=NONE dbg={...}
-t=0.70s hazard=0.678 level=PRE-CONTACT dbg={...}
-t=0.80s hazard=0.823 level=HIGH dbg={...}
-t=0.90s hazard=0.912 level=CRITICAL dbg={...}
-```
-
 ### Training (if you have data)
 
 ```bash
@@ -91,7 +81,7 @@ python -m src.evaluate holdout/
 
 **Attack videos MUST be trimmed:**
 - Start frame: Onset (wind-up begins)
-- End frame: Contact occurs
+- End frame: End of violence
 - Every frame contains attack behavior
 
 **Safe videos:**
@@ -121,11 +111,10 @@ Edit `src/config.py` to customize:
 ```python
 # Quick tweaks
 window_len = 5              # Temporal window (frames)
-focal_gamma = 3.0           # Focus on hard examples
-focal_alpha = 0.75          # Prioritize attack detection
-early_thresh = 0.50         # PRE-CONTACT threshold
-high_thresh = 0.60          # HIGH threshold
-critical_thresh = 0.80      # CRITICAL threshold
+safe_window_stride = 2      # Stride for safe videos
+focal_gamma = 2.0           # Focus on hard examples
+focal_alpha = 0.75          # Attack class weight
+early_thresh = 0.50         # THREAT threshold (tuned during training)
 ```
 
 ## Common Issues
@@ -180,9 +169,12 @@ pip install torch --index-url https://download.pytorch.org/whl/cu118
 
 | Task | Command |
 |------|---------|
-| Inference | `python -m src.infer video.mp4` |
 | Training | `python -m src.train` |
 | Evaluation | `python -m src.evaluate holdout/` |
+| Inference (video) | `python -m src.infer video.mp4` |
+| Inference (simulate live) | `python -m src.infer video.mp4 --simulate-live` |
+| Evaluate dataset | `python -m src.infer --eval-dir holdout/` |
+| Live detection (Pi 5) | `python -m src.infer 0 --picamera2 --pi` |
 | Check GPU | `python -c "import torch; print(torch.cuda.is_available())"` |
 | Test imports | `python -c "from src.model import HazardGRU"` |
 

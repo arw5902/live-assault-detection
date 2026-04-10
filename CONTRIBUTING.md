@@ -124,8 +124,8 @@ def extract_features(
         config: Configuration object
 
     Returns:
-        features: Feature vector (30-dim)
-        mask: Validity mask (30-dim)
+        features: Feature vector (59-dim)
+        mask: Validity mask (59-dim)
     """
     # Implementation
     ...
@@ -147,7 +147,7 @@ def extract_features(
 
 Example docstring:
 ```python
-def focal_loss(pred: torch.Tensor, target: torch.Tensor, gamma: float = 2.0, alpha: float = 0.25) -> torch.Tensor:
+def focal_loss(pred: torch.Tensor, target: torch.Tensor, gamma: float = 2.0, alpha: float = 0.75) -> torch.Tensor:
     """
     Compute Focal Loss for binary classification.
 
@@ -159,7 +159,7 @@ def focal_loss(pred: torch.Tensor, target: torch.Tensor, gamma: float = 2.0, alp
         target: Ground truth binary labels [batch_size] in {0, 1}
         gamma: Focusing parameter (default: 2.0). Higher values increase
             focus on hard examples.
-        alpha: Weighting factor for positive class (default: 0.25)
+        alpha: Weighting factor for positive class (default: 0.75)
 
     Returns:
         Scalar loss value
@@ -197,7 +197,7 @@ Example test:
 ```python
 def test_windowize_short_sequence():
     """Test windowize with sequence shorter than window length."""
-    X = np.random.randn(3, 30)  # Only 3 frames
+    X = np.random.randn(3, 59)  # Only 3 frames
     M = np.ones_like(X)
     y = np.array([0, 0, 1])
 
@@ -341,7 +341,6 @@ Any other relevant information
 ### Medium Priority
 
 - [ ] Attention mechanism for temporal modeling
-- [ ] Bidirectional GRU experiments
 - [ ] Audio features integration
 - [ ] Transfer learning experiments
 - [ ] Mobile/web deployment examples
