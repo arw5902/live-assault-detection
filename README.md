@@ -100,12 +100,6 @@ The `pose_backend` switches automatically: `Config.for_pi()` selects the Hailo N
 
 ## Quick Start
 
-### Inference on Video
-
-```bash
-python -m src.infer path/to/video.mp4
-```
-
 ### Training
 
 ```bash
@@ -118,6 +112,19 @@ python -m src.train
 
 ```bash
 python -m src.evaluate holdout
+```
+
+### Inference
+
+```bash
+# Inference on a video file
+python -m src.infer path/to/video.mp4
+
+# Live detection on Raspberry Pi 5 with Pi Camera Module
+python -m src.infer 0 --picamera2 --pi
+
+# Simulate live detection on Pi 5 using pre-recorded videos
+python -m src.infer --eval-dir simulationvideo_dir/ --pi --simulate-live
 ```
 
 ## Usage
@@ -474,16 +481,16 @@ Evaluated at threshold **0.65** (auto-tuned during training).
 python -m src.train
 
 # Holdout evaluation
-python -m src.evaluate holdout
+python -m src.evaluate holdout/
 
 # Test inference on a video file
 python -m src.infer path/to/video.mp4
 
 # Test inference with simulated live pacing (matches real-time Pi5 behavior)
-python -m src.infer path/to/video.mp4 --simulate-live
+python -m src.infer path/to/video.mp4 --pi --simulate-live
 
-# Evaluate on a pre-recorded dataset directory
-python -m src.infer --eval-dir holdout/
+# Test inference on a pre-recorded dataset directory
+python -m src.infer --eval-dir simulationvideo_dir/ --pi --simulate-live
 
 # Live detection on Raspberry Pi 5 with Pi Camera Module
 python -m src.infer 0 --picamera2 --pi

@@ -173,7 +173,7 @@ pip install torch --index-url https://download.pytorch.org/whl/cu118
 | Evaluation | `python -m src.evaluate holdout/` |
 | Inference (video) | `python -m src.infer video.mp4` |
 | Inference (simulate live) | `python -m src.infer video.mp4 --simulate-live` |
-| Evaluate dataset | `python -m src.infer --eval-dir holdout/` |
+| Inference (folder) | `python -m src.infer --eval-dir simulationvideo_dir/` |
 | Live detection (Pi 5) | `python -m src.infer 0 --picamera2 --pi` |
 | Check GPU | `python -c "import torch; print(torch.cuda.is_available())"` |
 | Test imports | `python -c "from src.model import HazardGRU"` |
