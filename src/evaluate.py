@@ -1,5 +1,6 @@
 import os
 import json
+import math
 import sys
 import argparse
 from datetime import datetime
@@ -7,11 +8,13 @@ import numpy as np
 import torch
 import cv2
 from collections import deque
-from .config import Config
-from .model import HazardGRU
+from .config import Config, FEATURE_NAMES
+from .model import HazardGRU, HazardLSTM, HazardTransformer, HazardCNN
 from .pose_detector import PoseDetector
 from .tracker import SingleTargetTracker
 from .features import build_features, add_interaction_features, compute_torso_height_frac, TemporalDerivatives
+from .dataset import extract_sequences, windowize
+from .feature_importance import compute_permutation_importance, print_importance_ranking, save_importance_results
 from .utils import set_seed, print_seed_info
 
 class Logger:
@@ -187,11 +190,19 @@ def main(holdout_dir: str, debug: bool = False):
     with open("outputs/checkpoints/meta.json") as f:
         meta = json.load(f)
         input_dim = meta["input_dim"]
-        threshold = meta.get("best_threshold", cfg.early_thresh)  # Use tuned threshold or fallback to config
+        threshold = meta.get("best_threshold", cfg.early_thresh)
         model_file = meta.get("model_file", "hazard_gru.pt")
+        model_type = meta.get("model_type", "gru")
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = HazardGRU(input_dim=input_dim, hidden=cfg.gru_hidden, dropout=0.0)
+    if model_type == "lstm":
+        model = HazardLSTM(input_dim=input_dim, hidden=cfg.gru_hidden, dropout=0.0)
+    elif model_type == "transformer":
+        model = HazardTransformer(input_dim=input_dim, d_model=cfg.gru_hidden, dropout=0.0)
+    elif model_type == "cnn":
+        model = HazardCNN(input_dim=input_dim, hidden=cfg.gru_hidden, dropout=0.0)
+    else:
+        model = HazardGRU(input_dim=input_dim, hidden=cfg.gru_hidden, dropout=0.0)
     model.load_state_dict(torch.load(f"outputs/checkpoints/{model_file}", map_location=device))
     model.eval()
 
@@ -372,6 +383,360 @@ def main(holdout_dir: str, debug: bool = False):
               f"Mean Lead: {np.mean(lead_times):.1f} frames "
               f"({np.mean(lead_times)/cfg.input_fps:.2f}s)")
     print("=" * 80)
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # WINDOW-LEVEL ANALYSIS: PR curve + Feature Importance on holdout data
+    # ══════════════════════════════════════════════════════════════════════════
+    print("\n" + "=" * 80)
+    print("WINDOW-LEVEL ANALYSIS (holdout set)")
+    print("=" * 80)
+    print("Building window-level dataset from holdout videos...")
+
+    # Re-seed for deterministic feature extraction
+    set_seed(seed=42, deterministic=True)
+
+    all_Xw, all_Mw, all_yw = [], [], []
+
+    # Attack videos — holdout videos are NOT trimmed; they contain normal
+    # frames before onset.  Extract all frames as "safe" (y=0) first, then
+    # relabel frames from onset_frame onward as attack (y=1).
+    # Frame indices in labels.json refer to raw 30fps frames; after
+    # frame_stride downsampling they map to step = raw_frame // frame_stride.
+    if os.path.exists(attack_dir):
+        for video_name, gt in labels.items():
+            video_path = os.path.join(attack_dir, video_name)
+            if not os.path.exists(video_path):
+                continue
+            X, M, y = extract_sequences(video_path, "safe", detector, cfg)
+            if X.shape[0] == 0:
+                continue
+            # Relabel: frames from onset onward are attack
+            onset_frame = gt.get('onset_frame', 0)
+            onset_step = onset_frame // cfg.frame_stride
+            y[onset_step:] = 1.0
+            Xw, Mw, yw = windowize(X, M, y, cfg.window_len, stride=1)
+            if Xw.shape[0] > 0:
+                all_Xw.append(Xw)
+                all_Mw.append(Mw)
+                all_yw.append(yw)
+
+    # Safe videos
+    if os.path.exists(safe_dir):
+        for video_file in os.listdir(safe_dir):
+            if not video_file.lower().endswith('.mp4'):
+                continue
+            video_path = os.path.join(safe_dir, video_file)
+            X, M, y = extract_sequences(video_path, "safe", detector, cfg)
+            if X.shape[0] == 0:
+                continue
+            Xw, Mw, yw = windowize(X, M, y, cfg.window_len,
+                                   stride=cfg.safe_window_stride)
+            if Xw.shape[0] > 0:
+                all_Xw.append(Xw)
+                all_Mw.append(Mw)
+                all_yw.append(yw)
+
+    if not all_Xw:
+        print("No windows extracted — skipping window-level analysis.")
+    else:
+        Xw_all = np.concatenate(all_Xw)
+        Mw_all = np.concatenate(all_Mw)
+        yw_all = np.concatenate(all_yw)
+
+        # Concatenate features + masks → model input
+        holdout_input = np.concatenate([Xw_all, Mw_all], axis=2).astype(np.float32)
+
+        n_attack_w = int((yw_all >= 0.5).sum())
+        n_safe_w = int((yw_all < 0.5).sum())
+        print(f"  Total windows: {len(yw_all)} (attack={n_attack_w}, safe={n_safe_w})")
+
+        # ── Collect predictions ──────────────────────────────────────────────
+        model.eval()
+        all_scores = []
+        batch_size = 64
+        with torch.no_grad():
+            for i in range(0, len(holdout_input), batch_size):
+                batch = torch.from_numpy(holdout_input[i:i+batch_size]).to(device)
+                scores = model(batch).cpu().numpy()
+                all_scores.extend(scores)
+
+        y_true = (yw_all >= 0.5).astype(int)
+        y_score = np.array(all_scores)
+
+        # ── Window-level metrics at selected threshold ───────────────────────
+        from sklearn.metrics import (precision_recall_fscore_support,
+                                     accuracy_score,
+                                     precision_recall_curve,
+                                     average_precision_score,
+                                     roc_curve, auc)
+
+        y_pred = (y_score >= threshold).astype(int)
+        acc = accuracy_score(y_true, y_pred)
+        prec, rec, f1, _ = precision_recall_fscore_support(
+            y_true, y_pred, average='binary', zero_division=0)
+        n_neg = max(1, int((y_true == 0).sum()))
+        fp_count = int(((y_pred == 1) & (y_true == 0)).sum())
+        fpr_val = fp_count / n_neg
+
+        print(f"\n--- Window-Level Metrics @ threshold={threshold:.2f} ---")
+        print(f"  Accuracy  : {acc:.4f}")
+        print(f"  Precision : {prec:.4f}")
+        print(f"  Recall    : {rec:.4f}")
+        print(f"  F1 Score  : {f1:.4f}")
+        print(f"  FPR       : {fpr_val:.2%}")
+
+        # ── PR Curve ─────────────────────────────────────────────────────────
+        try:
+            import matplotlib
+            matplotlib.use("Agg")
+            import matplotlib.pyplot as plt
+
+            os.makedirs("outputs/plots", exist_ok=True)
+
+            # Pre-compute per-threshold metrics
+            n_neg = max(1, int((y_true == 0).sum()))
+            marker_thresholds = [0.30, 0.35, 0.40, 0.45, 0.50, 0.55, 0.60, 0.65, 0.70]
+            marker_metrics = {}
+            for t in marker_thresholds:
+                y_pred = (y_score >= t).astype(int)
+                p, r, f, _ = precision_recall_fscore_support(
+                    y_true, y_pred, average='binary', zero_division=0)
+                fp_count = int(((y_pred == 1) & (y_true == 0)).sum())
+                marker_metrics[t] = (p, r, f, fp_count / n_neg)
+
+            # --- Precision-Recall curve ---
+            prec_arr, rec_arr, pr_thresholds = precision_recall_curve(y_true, y_score)
+            ap = average_precision_score(y_true, y_score)
+
+            fig, ax = plt.subplots(figsize=(8, 6))
+
+            # F1 iso-curves
+            for f1_val in [0.5, 0.6, 0.7, 0.8, 0.9]:
+                r_iso = np.linspace(0.01, 1.0, 200)
+                p_iso = (f1_val * r_iso) / (2 * r_iso - f1_val)
+                valid = (p_iso > 0) & (p_iso <= 1)
+                ax.plot(r_iso[valid], p_iso[valid], '--', color='gray',
+                        alpha=0.35, linewidth=0.8)
+                label_idx = np.where(valid)[0]
+                if len(label_idx) > 0:
+                    li = label_idx[-1]
+                    ax.annotate(f"F1={f1_val}", (r_iso[li], p_iso[li]),
+                                fontsize=7, color='gray', alpha=0.7,
+                                ha='left', va='bottom')
+
+            ax.plot(rec_arr, prec_arr, linewidth=2, color='#1f77b4',
+                    label=f"PR curve (AP={ap:.3f})")
+
+            # Threshold markers
+            table_lines = []
+            all_markers = list(marker_thresholds)
+            if threshold not in all_markers:
+                all_markers.append(threshold)
+                all_markers.sort()
+                y_sel = (y_score >= threshold).astype(int)
+                p_s, r_s, f_s, _ = precision_recall_fscore_support(
+                    y_true, y_sel, average='binary', zero_division=0)
+                fp_s = int(((y_sel == 1) & (y_true == 0)).sum())
+                marker_metrics[threshold] = (p_s, r_s, f_s, fp_s / n_neg)
+
+            marker_items = []
+            for t in all_markers:
+                p_m, r_m, f_m, fpr_m = marker_metrics[t]
+                if r_m == 0 and p_m == 0:
+                    continue
+                is_selected = abs(t - threshold) < 0.005
+                color = 'red' if is_selected else '#1f77b4'
+                size = 10 if is_selected else 6
+                zorder = 10 if is_selected else 5
+                ax.plot(r_m, p_m, 'o', color=color, markersize=size,
+                        zorder=zorder)
+                marker_items.append((t, r_m, p_m, f_m, fpr_m, is_selected, color))
+
+            # Fan-out labels if clustered
+            angles = []
+            n_items = len(marker_items)
+            if n_items > 0:
+                r_vals = [mi[1] for mi in marker_items]
+                p_vals = [mi[2] for mi in marker_items]
+                clustered = (max(r_vals) - min(r_vals) < 0.05
+                             and max(p_vals) - min(p_vals) < 0.05)
+                if clustered and n_items > 1:
+                    start_angle = 200
+                    sweep = min(200, 30 * n_items)
+                    for i in range(n_items):
+                        angle_deg = start_angle - (sweep * i / max(1, n_items - 1))
+                        angle_rad = math.radians(angle_deg)
+                        dist = 18
+                        dx = dist * math.cos(angle_rad)
+                        dy = dist * math.sin(angle_rad)
+                        angles.append((dx, dy))
+                else:
+                    angles = [(6, 4)] * n_items
+
+            for idx, (t, r_m, p_m, f_m, fpr_m, is_selected, color) in enumerate(marker_items):
+                dx, dy = angles[idx]
+                ax.annotate(f"{t:.2f}", (r_m, p_m),
+                            textcoords="offset points", xytext=(dx, dy),
+                            fontsize=5.5, color=color,
+                            fontweight='bold' if is_selected else 'normal',
+                            arrowprops=dict(arrowstyle='-', color=color,
+                                            lw=0.5, alpha=0.4)
+                            if (abs(dx) > 10 or abs(dy) > 10) else None)
+
+                tag = "★" if is_selected else " "
+                table_lines.append(
+                    f"{tag} t={t:.2f}  P={p_m:.2f}  R={r_m:.2f}  "
+                    f"F1={f_m:.2f}  FPR={fpr_m:>6.2%}")
+
+            table_text = "\n".join(table_lines)
+            txt = ax.text(0.02, 0.02, table_text, transform=ax.transAxes,
+                          fontsize=7, fontfamily='monospace', verticalalignment='bottom',
+                          bbox=dict(boxstyle='round,pad=0.4', facecolor='white',
+                                    edgecolor='#cccccc', alpha=0.9))
+
+            fig.canvas.draw()
+            bb = txt.get_window_extent(renderer=fig.canvas.get_renderer())
+            bb_axes = bb.transformed(ax.transAxes.inverted())
+            ax.legend(loc="lower left", fontsize=8,
+                      bbox_to_anchor=(0.01, bb_axes.y1 + 0.01))
+
+            ax.set_xlabel("Recall", fontsize=11)
+            ax.set_ylabel("Precision", fontsize=11)
+            ax.set_title(f"Precision-Recall Curve (Within-Domain Test Set) - {model_type.upper()}", fontsize=12)
+            ax.set_xlim([0, 1.05])
+            ax.set_ylim([0, 1.05])
+            ax.grid(True, alpha=0.3)
+            pr_path = f"outputs/plots/pr_curve_holdout_{timestamp}.png"
+            fig.savefig(pr_path, dpi=150, bbox_inches="tight")
+            plt.close(fig)
+            print(f"\n  PR curve saved to  : {pr_path}  (AP={ap:.3f})")
+
+            # --- ROC curve ---
+            fpr_arr, tpr_arr, roc_thresholds = roc_curve(y_true, y_score)
+            roc_auc = auc(fpr_arr, tpr_arr)
+
+            fig, ax = plt.subplots(figsize=(8, 6))
+            ax.plot(fpr_arr, tpr_arr, linewidth=2, color='#1f77b4',
+                    label=f"ROC curve (AUC={roc_auc:.3f})")
+            ax.plot([0, 1], [0, 1], "k--", alpha=0.3, label="Random")
+
+            roc_table_lines = []
+            roc_marker_items = []
+            for t in all_markers:
+                p_m, r_m, f_m, fpr_m = marker_metrics[t]
+                best_dist = float('inf')
+                tpr_m = r_m
+                fpr_plot = fpr_m
+                for rt, rfp, rtp in zip(roc_thresholds, fpr_arr, tpr_arr):
+                    dist = abs(rt - t)
+                    if dist < best_dist:
+                        best_dist = dist
+                        fpr_plot, tpr_m = rfp, rtp
+                is_selected = abs(t - threshold) < 0.005
+                color = 'red' if is_selected else '#1f77b4'
+                size = 6 if is_selected else 3
+                zorder = 10 if is_selected else 5
+                ax.plot(fpr_plot, tpr_m, 'o', color=color, markersize=size,
+                        zorder=zorder)
+                roc_marker_items.append((t, fpr_plot, tpr_m, is_selected, color,
+                                         r_m, f_m, fpr_m))
+
+            roc_angles = []
+            n_roc = len(roc_marker_items)
+            if n_roc > 0:
+                fpr_vals = [mi[1] for mi in roc_marker_items]
+                tpr_vals = [mi[2] for mi in roc_marker_items]
+                clustered = (max(fpr_vals) - min(fpr_vals) < 0.05
+                             and max(tpr_vals) - min(tpr_vals) < 0.05)
+                if clustered and n_roc > 1:
+                    start_angle = -30
+                    sweep = min(200, 30 * n_roc)
+                    for i in range(n_roc):
+                        angle_deg = start_angle - (sweep * i / max(1, n_roc - 1))
+                        angle_rad = math.radians(angle_deg)
+                        dist = 18
+                        dx = dist * math.cos(angle_rad)
+                        dy = dist * math.sin(angle_rad)
+                        roc_angles.append((dx, dy))
+                else:
+                    roc_angles = [(10, 0)] * n_roc
+
+            for idx, (t, fpr_plot, tpr_m, is_selected, color, r_m, f_m, fpr_m) in enumerate(roc_marker_items):
+                dx, dy = roc_angles[idx]
+                ax.annotate(f"{t:.2f}", (fpr_plot, tpr_m),
+                            textcoords="offset points", xytext=(dx, dy),
+                            fontsize=5.5, color=color,
+                            fontweight='bold' if is_selected else 'normal',
+                            va='center',
+                            arrowprops=dict(arrowstyle='-', color=color,
+                                            lw=0.5, alpha=0.4)
+                            if (abs(dx) > 10 or abs(dy) > 10) else None)
+
+                tag = "★" if is_selected else " "
+                roc_table_lines.append(
+                    f"{tag} t={t:.2f}  TPR={r_m:.2f}  FPR={fpr_m:>6.2%}  "
+                    f"F1={f_m:.2f}")
+
+            roc_table_text = "\n".join(roc_table_lines)
+            txt2 = ax.text(0.98, 0.02, roc_table_text, transform=ax.transAxes,
+                            fontsize=7, fontfamily='monospace', verticalalignment='bottom',
+                            horizontalalignment='right',
+                            bbox=dict(boxstyle='round,pad=0.4', facecolor='white',
+                                      edgecolor='#cccccc', alpha=0.9))
+
+            fig.canvas.draw()
+            bb2 = txt2.get_window_extent(renderer=fig.canvas.get_renderer())
+            bb2_axes = bb2.transformed(ax.transAxes.inverted())
+            ax.legend(loc="lower right", fontsize=8,
+                      bbox_to_anchor=(0.99, bb2_axes.y1 + 0.01))
+
+            ax.set_xlabel("False Positive Rate", fontsize=11)
+            ax.set_ylabel("True Positive Rate (Recall)", fontsize=11)
+            ax.set_title(f"ROC Curve (Within-Domain Test Set) - {model_type.upper()}", fontsize=12)
+            ax.set_xlim([0, 1.02])
+            ax.set_ylim([0, 1.05])
+            ax.grid(True, alpha=0.3)
+            roc_path = f"outputs/plots/roc_curve_holdout_{timestamp}.png"
+            fig.savefig(roc_path, dpi=150, bbox_inches="tight")
+            plt.close(fig)
+            print(f"  ROC curve saved to : {roc_path}  (AUC={roc_auc:.3f})")
+
+            # Print threshold comparison table
+            print(f"\n  Threshold comparison (holdout set, n_neg={n_neg}):")
+            print(f"  {'thresh':>6s}   {'Prec':>5s}   {'Rec':>5s}   {'F1':>5s}   {'FP%':>6s}  note")
+            print(f"  {'-'*46}")
+            for t in all_markers:
+                p_m, r_m, f_m, fpr_m = marker_metrics[t]
+                note = " ★ selected" if abs(t - threshold) < 0.005 else ""
+                print(f"  {t:>6.2f}  {p_m:.3f}  {r_m:.3f}  {f_m:.3f}  {fpr_m:>6.2%}{note}")
+
+        except ImportError as e:
+            print(f"\n  Skipping PR/ROC curves: {e}")
+
+        # ── Feature Importance ───────────────────────────────────────────────
+        print("\n" + "=" * 80)
+        print("COMPUTING FEATURE IMPORTANCE (holdout set)")
+        print("=" * 80)
+
+        from torch.utils.data import TensorDataset, DataLoader
+
+        holdout_dataset = TensorDataset(
+            torch.from_numpy(holdout_input).float(),
+            torch.from_numpy(yw_all).float())
+        holdout_loader = DataLoader(holdout_dataset, batch_size=64, shuffle=False)
+
+        importances, baseline_f1 = compute_permutation_importance(
+            model=model,
+            val_loader=holdout_loader,
+            threshold=threshold,
+            device=device,
+            n_repeats=5,
+        )
+
+        print_importance_ranking(importances, baseline_f1)
+
+        importance_output = f"outputs/logs/feature_importance_holdout_{timestamp}.json"
+        save_importance_results(importances, baseline_f1, importance_output)
 
     print(f"\nEvaluation completed at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"Log saved to: {log_file}")

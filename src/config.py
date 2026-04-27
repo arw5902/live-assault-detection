@@ -7,7 +7,7 @@ class Config:
     The class-body defaults are PC values.
     Use Config.for_pc() or Config.for_pi() to get a platform-specific instance.
     """
-    data_root: str = "/Users/home/Downloads/train/data"
+    data_root: str = "data"
     safe_dir: str = "safe"
     attack_dir: str = "attack"
 
@@ -136,12 +136,12 @@ class Config:
         - Flow: 600 sample points (same as PC) — needed because uniform clothing
           has very few trackable pixels; reducing to 300 causes lk_flow to find
           < 2 good points on the torso ROI and return None (flow_ok = 0)
-        - Alert: persist=1 — 1 step is enough at ~1-4 Hz effective inference rate
+        - Alert: persist=2
         Total: ~35 + 40 + 5 = ~80 ms typical → ~10-12 Hz → gap ~3 frames at 30 fps
         """
         return cls(
             pose_backend  = "hailo",
-            early_persist = 1,      # at ~1 Hz inference, 1 step ≈ 1 s of sustained attack
+            early_persist = 2,      # was 1 Hz before
         )
 
 

@@ -764,6 +764,8 @@ def build_features(
         "torso_compression": torso_compression,
         "wrist_height_asym": wrist_height_asym,
         "torso_ht_px": torso_ht_px,
+        "roi_torso": roi_torso,
+        "roi_lower": roi_lower,
     }
     return x, m, debug, curr_gray
 

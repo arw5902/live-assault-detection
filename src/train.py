@@ -12,7 +12,7 @@ from sklearn.metrics import (precision_recall_fscore_support, accuracy_score,
                              roc_curve, auc)
 from .config import Config, FEATURE_NAMES
 from .dataset import build_dataset_per_video  # Video-level data for proper train/val split
-from .model import HazardGRU
+from .model import HazardGRU, HazardLSTM, HazardTransformer, HazardCNN
 from .pose_detector import PoseDetector
 from .utils import set_seed, print_seed_info
 from .feature_importance import compute_permutation_importance, print_importance_ranking, save_importance_results
@@ -45,7 +45,7 @@ class WindowDataset(Dataset):
     def __getitem__(self, i):
         return self.X[i], self.y[i]
 
-def main():
+def main(model_type: str = "gru"):
     # Setup logging
     os.makedirs("outputs/logs", exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -207,12 +207,23 @@ def main():
 
     # Save metadata for inference
     os.makedirs("outputs/checkpoints", exist_ok=True)
-    model_filename = f"hazard_gru_{timestamp}.pt"
+    model_filename = f"hazard_{model_type}_{timestamp}.pt"
     model_path = f"outputs/checkpoints/{model_filename}"
     with open("outputs/checkpoints/meta.json", "w") as f:
-        json.dump({"input_dim": int(input_dim), "best_threshold": 0.50, "model_file": model_filename}, f)  # best_threshold updated whenever a new best F1 is found
+        json.dump({"input_dim": int(input_dim), "best_threshold": 0.50,
+                   "model_file": model_filename, "model_type": model_type}, f)
 
-    model = HazardGRU(input_dim=input_dim, hidden=cfg.gru_hidden, dropout=cfg.dropout)
+    if model_type == "lstm":
+        model = HazardLSTM(input_dim=input_dim, hidden=cfg.gru_hidden, dropout=cfg.dropout)
+    elif model_type == "transformer":
+        model = HazardTransformer(input_dim=input_dim, d_model=cfg.gru_hidden, dropout=cfg.dropout)
+    elif model_type == "cnn":
+        model = HazardCNN(input_dim=input_dim, hidden=cfg.gru_hidden, dropout=cfg.dropout)
+    else:
+        model = HazardGRU(input_dim=input_dim, hidden=cfg.gru_hidden, dropout=cfg.dropout)
+
+    n_params = sum(p.numel() for p in model.parameters())
+    print(f"Model: {model_type.upper()}  |  Parameters: {n_params:,}")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
 
@@ -510,7 +521,7 @@ def main():
 
         ax.set_xlabel("Recall", fontsize=11)
         ax.set_ylabel("Precision", fontsize=11)
-        ax.set_title("Precision-Recall Curve (Validation Set)", fontsize=12)
+        ax.set_title(f"Precision-Recall Curve (Validation Set) - {model_type.upper()}", fontsize=12)
         ax.set_xlim([0, 1.05])
         ax.set_ylim([0, 1.05])
         ax.grid(True, alpha=0.3)
@@ -606,7 +617,7 @@ def main():
 
         ax.set_xlabel("False Positive Rate", fontsize=11)
         ax.set_ylabel("True Positive Rate (Recall)", fontsize=11)
-        ax.set_title("ROC Curve (Validation Set)", fontsize=12)
+        ax.set_title(f"ROC Curve (Validation Set) - {model_type.upper()}", fontsize=12)
         ax.set_xlim([0, 1.02])
         ax.set_ylim([0, 1.05])
         ax.grid(True, alpha=0.3)
@@ -661,4 +672,9 @@ def main():
     sys.stdout = sys.__stdout__
 
 if __name__ == "__main__":
-    main()
+    import argparse
+    parser = argparse.ArgumentParser(description="Train hazard detection model")
+    parser.add_argument("--model", choices=["gru", "lstm", "transformer", "cnn"], default="gru",
+                        help="Model architecture: gru (default), lstm, transformer, or cnn")
+    args = parser.parse_args()
+    main(model_type=args.model)
