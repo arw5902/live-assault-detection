@@ -1,6 +1,6 @@
 # Quick Start Guide
 
-Get up and running with the Pre-contact Detection System in 5 minutes.
+Get up and running with the Real-Time Physical Threat Detection System in 5 minutes.
 
 ## Prerequisites
 

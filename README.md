@@ -1,4 +1,4 @@
-# Pre-contact Detection System
+# Real-Time Physical Threat Detection System
 
 An automatic, real-time assault detection system for body-worn cameras. Built using pose estimation, optical flow analysis, and GRU-based temporal modeling.
 
@@ -56,8 +56,8 @@ This system analyzes video streams to automatically detect assault behavior in r
 ### 1. Clone Repository
 
 ```bash
-git clone https://github.com/yourusername/Pre-contactDetection.git
-cd Pre-contactDetection
+git clone https://github.com/arw5902/live-assault-detection.git
+cd live-assault-detection
 ```
 
 ### 2. Create Virtual Environment
@@ -111,7 +111,7 @@ python -m src.train
 ### Evaluation
 
 ```bash
-python -m src.evaluate holdout
+python -m src.evaluate holdout/
 ```
 
 ### Inference
@@ -308,7 +308,7 @@ outputs/
 ### Evaluation Command
 
 ```bash
-python -m src.evaluate holdout
+python -m src.evaluate holdout/
 ```
 
 ### Evaluation Output
@@ -317,7 +317,7 @@ From `outputs/logs/evaluate_20260406_221217.log`:
 
 ```
 ================================================================================
-HOLDOUT EVALUATION - Pre-contact Detection
+HOLDOUT EVALUATION
 Holdout directory: holdout/
 Using threshold: 0.65 (from training optimization)
 ================================================================================
@@ -378,7 +378,7 @@ Detection Performance:
 ## Project Structure
 
 ```
-Pre-contactDetection/
+live-assault-detection/
 ├── src/
 │   ├── config.py              # Configuration parameters + FEATURE_NAMES
 │   ├── model.py               # GRU model definition
@@ -546,11 +546,11 @@ python -m src.infer 0 --picamera2 --pi
 If you use this project in your research, please cite:
 
 ```bibtex
-@software{precontact_detection_2025,
-  author = {Your Name},
-  title = {Pre-contact Detection System for Assault Warning},
+@software{live_assault_detection_2025,
+  author = {Anthony Wang},
+  title = {Real-Time Physical Threat Detection System},
   year = {2026},
-  url = {https://github.com/yourusername/Pre-contactDetection}
+  url = {https://github.com/arw5902/live-assault-detection}
 }
 ```
 

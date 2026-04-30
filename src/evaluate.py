@@ -212,7 +212,7 @@ def main(holdout_dir: str, debug: bool = False):
         labels = json.load(f)
 
     print("=" * 80)
-    print("HOLDOUT EVALUATION - Pre-contact Detection")
+    print("HOLDOUT EVALUATION")
     print(f"Holdout directory: {holdout_dir}")
     print(f"Using threshold: {threshold:.2f} (from training optimization)")
     print("=" * 80)

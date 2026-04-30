@@ -1689,7 +1689,7 @@ def evaluate_dir(eval_dir, verbose=False, debug=False, enable_pi=False,
     with open(labels_file) as f:
         labels = json.load(f)
 
-    mode_label = "Window-Level Analysis" if analyze else "Pre-contact Detection"
+    mode_label = "Window-Level Analysis" if analyze else "Live Detection"
     print("=" * 80)
     print(f"INFERENCE ({mode_label})")
     print(f"Directory  : {eval_dir}")
@@ -1719,7 +1719,7 @@ def evaluate_dir(eval_dir, verbose=False, debug=False, enable_pi=False,
         return
 
     # ══════════════════════════════════════════════════════════════════════════
-    # PRE-CONTACT DETECTION MODE (default)
+    # LIVE DETECTION MODE (default)
     # ══════════════════════════════════════════════════════════════════════════
 
     # ── attack videos ─────────────────────────────────────────────────────────
@@ -2231,7 +2231,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--analyze", action="store_true",
         help="With --eval-dir: run window-level analysis (F1, PR curve, "
-             "ROC curve, feature importance) instead of Pre-contact Detection.  "
+             "ROC curve, feature importance) instead of Live Detection.  "
              "This mode re-extracts windows from the dataset and evaluates "
              "raw GRU scores (no EMA), producing metrics and plots for the paper.")
 

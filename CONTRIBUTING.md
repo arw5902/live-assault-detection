@@ -1,6 +1,6 @@
-# Contributing to Pre-contact Detection System
+# Contributing to Real-Time Physical Threat Detection System
 
-Thank you for your interest in contributing to the Pre-contact Detection System! This document provides guidelines and instructions for contributing.
+Thank you for your interest in contributing to the Real-Time Physical Threat Detection System! This document provides guidelines and instructions for contributing.
 
 ## Table of Contents
 
@@ -29,13 +29,13 @@ This project adheres to a code of conduct that all contributors are expected to 
 1. **Fork the repository** on GitHub
 2. **Clone your fork** locally:
    ```bash
-   git clone https://github.com/yourusername/Pre-contactDetection.git
-   cd Pre-contactDetection
+   git clone https://github.com/arw5902/live-assault-detection.git
+   cd live-assault-detection
    ```
 
 3. **Set up remote upstream**:
    ```bash
-   git remote add upstream https://github.com/originalrepo/Pre-contactDetection.git
+   git remote add upstream https://github.com/originalrepo/live-assault-detection.git
    ```
 
 4. **Create a branch** for your changes:
