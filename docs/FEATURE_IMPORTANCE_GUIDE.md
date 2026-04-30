@@ -24,7 +24,7 @@ Permutation importance measures how much model performance drops when a feature'
 Contains three main functions:
 
 - `compute_permutation_importance(model, val_loader, threshold, device, n_repeats=5)`
-  - Computes permutation importance for all 51 features
+  - Computes permutation importance for all 59 features
   - Returns importance scores and baseline F1
 
 - `print_importance_ranking(importances, baseline_f1)`
@@ -57,7 +57,7 @@ save_importance_results(importances, baseline_f1, output_path)
 
 ### 3. **src/config.py** (MODIFIED)
 
-Added `FEATURE_NAMES` list defining all 51 feature names (see `src/config.py` for the complete list). Key groups:
+Added `FEATURE_NAMES` list defining all 59 feature names (see `src/config.py` for the complete list). Key groups:
 
 ```python
 FEATURE_NAMES = [
@@ -70,7 +70,8 @@ FEATURE_NAMES = [
     # Optical Flow – Background  indices 40-41
     # Posture                    indices 42-44
     # Dynamics                   indices 45-47
-    # Interaction Features       indices 48-50
+    # Body-shape Extras          indices 48-55
+    # Interaction Features       indices 56-58
 ]
 ```
 
@@ -98,11 +99,11 @@ Baseline F1: 0.8330
 
 Rank   Feature                        F1 Drop      Std        Importance %  Index
 --------------------------------------------------------------------------------
-1  ⭐  expansion_proximity            +0.xxxxx   ±0.xxxxxx    11.10%        49
-2  ⭐  acceleration_proximity         +0.xxxxx   ±0.xxxxxx     9.50%        50
-3  ⭐  translation_lower              +0.xxxxx   ±0.xxxxxx     9.20%        37
-4  ⭐  max_wrist_extension_accel      +0.xxxxx   ±0.xxxxxx     8.60%        46
-5  ⭐  translation_torso              +0.xxxxx   ±0.xxxxxx     8.30%        33
+1  ⭐  expansion_proximity            +0.xxxxx   ±0.xxxxxx    24.70%        57
+2  ⭐  torso_height_px                +0.xxxxx   ±0.xxxxxx    20.80%        48
+3  ⭐  divergence_torso               +0.xxxxx   ±0.xxxxxx     9.90%        34
+4  ⭐  divergence_lower               +0.xxxxx   ±0.xxxxxx     7.30%        38
+5  ⭐  acceleration_proximity         +0.xxxxx   ±0.xxxxxx     7.10%        58
 ...
 ```
 
@@ -116,18 +117,18 @@ Rank   Feature                        F1 Drop      Std        Importance %  Inde
     {
       "rank": 1,
       "name": "expansion_proximity",
-      "index": 49,
+      "index": 57,
       "f1_drop_mean": 0.xxxxxx,
       "f1_drop_std": 0.xxxxxx,
-      "importance_percent": 11.10
+      "importance_percent": 24.70
     },
     {
       "rank": 2,
-      "name": "acceleration_proximity",
-      "index": 50,
+      "name": "torso_height_px",
+      "index": 48,
       "f1_drop_mean": 0.xxxxxx,
       "f1_drop_std": 0.xxxxxx,
-      "importance_percent": 9.50
+      "importance_percent": 20.80
     },
     ...
   ]
@@ -152,17 +153,17 @@ importance_percent = (positive_f1_drop / sum_of_all_positive_drops) * 100
 
 ### Current Findings
 
-Based on the current 51-feature model with `window_len=5`:
+Based on the current 59-feature model with `window_len=5`:
 
 | Rank | Feature | Importance | Index | Category |
 |------|---------|-----------|-------|----------|
-| 1 | expansion_proximity | 11.1% | 49 | Interaction |
-| 2 | acceleration_proximity | 9.5% | 50 | Interaction |
-| 3 | translation_lower | 9.2% | 37 | Optical Flow |
-| 4 | max_wrist_extension_accel | 8.6% | 46 | Dynamics |
-| 5 | translation_torso | 8.3% | 33 | Optical Flow |
+| 1 | expansion_proximity | 24.7% | 57 | Interaction |
+| 2 | torso_height_px | 20.8% | 48 | Body-shape Extras |
+| 3 | divergence_torso | 9.9% | 34 | Optical Flow (Torso) |
+| 4 | divergence_lower | 7.3% | 38 | Optical Flow (Lower) |
+| 5 | acceleration_proximity | 7.1% | 58 | Interaction |
 
-**Key Insight:** The top 5 features account for ~46.7% of total importance. The two interaction features (ranks 1–2) dominate, confirming that **proximity-gated motion** is the most discriminative pattern — the same movement is only threatening when the person is already close. Raw flow translation features (ranks 3, 5) and wrist acceleration (rank 4) are the strongest individual signals before proximity gating.
+**Key Insight:** The top 5 features account for ~69.8% of total importance — a much sharper concentration than the previous 51-feature model. The interaction feature `expansion_proximity` (proximity-gated optical-flow expansion) and the apparent body size `torso_height_px` jointly account for ~45%, confirming that **scale/proximity cues dominate the decision**: the same motion is only threatening when the person is large in frame and getting larger. Raw flow divergence in the torso and lower-body ROIs (ranks 3–4) provides the next-strongest evidence, and `acceleration_proximity` (rank 5) adds the proximity-gated wrist-acceleration signal.
 
 ## Computational Cost
 
@@ -224,7 +225,7 @@ import torch
 
 # Load trained model
 cfg = Config()
-model = HazardGRU(input_dim=102, hidden=cfg.gru_hidden, dropout=cfg.dropout)
+model = HazardGRU(input_dim=118, hidden=cfg.gru_hidden, dropout=cfg.dropout)
 model.load_state_dict(torch.load("outputs/checkpoints/hazard_gru.pt"))
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model.to(device)

@@ -1,8 +1,8 @@
-# Pre-contact Detection System - Design Specification
+# Real-Time Physical Threat Detection System - Design Specification
 
 **Version**: 1.0.0
 **Last Updated**: February 2026
-**Author**: Pre-contact Detection Team
+**Author**: Real-Time Physical Threat Detection Team
 
 ---
 
@@ -39,15 +39,15 @@ Develop a real-time system capable of detecting assault behavior **before physic
 The system combines:
 1. **Pose Estimation**: YOLOv8-Pose for body keypoint detection
 2. **Optical Flow**: Lucas-Kanade for motion analysis
-3. **Feature Engineering**: 51-dimensional feature vector (+ 51 validity masks = 102-dim model input)
-4. **Temporal Modeling**: GRU neural network for sequence classification
-5. **Multi-level Alerts**: Three escalating warning thresholds
+3. **Feature Engineering**: 59-dimensional feature vector (+ 59 validity masks = 118-dim model input)
+4. **Temporal Modeling**: Recurrent neural network for sequence classification — GRU (deployment default) and LSTM (best window-level accuracy) are both supported
+5. **Single THREAT Alert**: Binary threshold-based detection
 
 ### 1.3 System Requirements
 
 #### Functional Requirements
 - FR1: Detect assault behavior before physical contact
-- FR2: Provide three warning levels (PRE-CONTACT, HIGH, CRITICAL)
+- FR2: Provide a single binary THREAT alert based on a tuned hazard threshold
 - FR3: Process standard video formats (MP4, AVI)
 - FR4: Support real-time inference (≥10 FPS)
 - FR5: Log detections with timestamps and confidence scores
@@ -109,7 +109,7 @@ The system combines:
                            │
                            ▼
 ┌─────────────────────────────────────────────────────────────┐
-│              FEATURE EXTRACTION (51-dim)                     │
+│              FEATURE EXTRACTION (59-dim)                     │
 │  • Reliability/metadata: det_conf, kp stats, crop (9)       │
 │  • Bbox/approach: log_area, derivatives, center, vel (8)    │
 │  • Upper body pose: wrist/elbow distances and angles (8)    │
@@ -117,6 +117,9 @@ The system combines:
 │  • Optical flow: torso/lower ROI + background (10)          │
 │  • Posture: torso compression, wrist asym, face vis (3)     │
 │  • Dynamics: wrist vel/accel, log_scale (3)                 │
+│  • Body-shape extras: torso_height_px, wrist_y_rel,         │
+│    d_wrist_y_rel_dt, ankle_spread, d_ankle_spread_dt,       │
+│    nose_y_rel, d_nose_y_rel_dt, upper_lower_async (8)       │
 │  • Interaction: approach_rate, expansion, accel (3)         │
 └──────────────────────────┬──────────────────────────────────┘
                            │
@@ -125,7 +128,7 @@ The system combines:
 │                 TEMPORAL WINDOWING                           │
 │  • Sliding window: 5 frames (0.5s)                          │
 │  • Buffer: deque with maxlen=5                              │
-│  • Input shape: [1, 5, 102] (51 features + 51 masks)        │
+│  • Input shape: [1, 5, 118] (59 features + 59 masks)        │
 └──────────────────────────┬──────────────────────────────────┘
                            │
                            ▼
@@ -142,16 +145,13 @@ The system combines:
 │               POST-PROCESSING & ALERTING                     │
 │  • EMA smoothing (α=0.7)                                    │
 │  • Persistence logic (2 frames)                             │
-│  • Multi-level thresholding:                                │
-│    - PRE-CONTACT: 0.50                                      │
-│    - HIGH: 0.60                                             │
-│    - CRITICAL: 0.80                                         │
+│  • Single THREAT threshold (default 0.50, tuned per model)  │
 └──────────────────────────┬──────────────────────────────────┘
                            │
                            ▼
 ┌─────────────────────────────────────────────────────────────┐
 │                    ALERT OUTPUT                              │
-│  • Warning level: NONE / PRE-CONTACT / HIGH / CRITICAL      │
+│  • Alert state: NONE / THREAT                                │
 │  • Hazard score: 0.0 - 1.0                                  │
 │  • Timestamp: frame index / time                            │
 └─────────────────────────────────────────────────────────────┘
@@ -167,13 +167,13 @@ Extract Frames @ 10 FPS (frame_stride=3)
     ↓
 Pose Detection (YOLOv8)
     ↓
-Feature Extraction (51-dim per frame) + Validity Masks (51-dim)
+Feature Extraction (59-dim per frame) + Validity Masks (59-dim)
     ↓
 Post-processing: fill dlog_area_dt, d2log_area_dt2, wrist derivatives
     ↓
 Sliding Windows (5 frames, stride varies)
     ↓
-Dataset: [N, 5, 102] windows  (51 features + 51 masks concatenated)
+Dataset: [N, 5, 118] windows  (59 features + 59 masks concatenated)
     ↓
 Video-Level Train/Val Split (85/15)
     ↓
@@ -194,23 +194,24 @@ Pose Detection → 17 keypoints
     ↓
 Tracking → Consistent bbox
     ↓
-Feature Extraction → 51-dim vector + 51-dim mask
+Feature Extraction → 59-dim vector + 59-dim mask
     ↓
-Fill temporal derivatives frame-by-frame (dlog_area_dt, wrist vel/accel)
+Fill temporal derivatives frame-by-frame (dlog_area_dt, wrist vel/accel,
+  d_wrist_y_rel_dt, d_ankle_spread_dt, d_nose_y_rel_dt)
     ↓
-Add interaction features → 51-dim final vector
+Add interaction features → 59-dim final vector
     ↓
 Add to Window Buffer (deque, maxlen=5)
     ↓
 If buffer full (5 frames):
     ↓
-GRU Inference → hazard score  [input: 1×5×102]
+GRU Inference → hazard score  [input: 1×5×118]
     ↓
 EMA Smoothing
     ↓
-Threshold Comparison
+Single Threshold Comparison (THREAT vs NONE)
     ↓
-Alert Level Output
+Alert State Output
 ```
 
 ### 2.3 Module Diagram
@@ -243,8 +244,8 @@ Alert Level Output
 ┌────────────────────────────────────────────────────────┐
 │                  src/features.py                        │
 │  Feature extraction from pose + flow                   │
-│  • build_features() → 48-dim vector + mask (base)      │
-│  • add_interaction_features() → 51-dim final           │
+│  • build_features() → 56-dim vector + mask (base)      │
+│  • add_interaction_features() → 59-dim final           │
 │  • FeatureState: carry-forward imputation              │
 └────────────────────────────────────────────────────────┘
 
@@ -258,7 +259,7 @@ Alert Level Output
 
 ┌────────────────────────────────────────────────────────┐
 │                    src/model.py                         │
-│  HazardGRU neural network                              │
+│  Hazard models (GRU for deployment, LSTM for accuracy) │
 │  • forward(x) → hazard score                           │
 └────────────────────────────────────────────────────────┘
 
@@ -272,7 +273,7 @@ Alert Level Output
 
 ┌────────────────────────────────────────────────────────┐
 │                  src/evaluate.py                        │
-│  Holdout evaluation with multi-level warnings          │
+│  Holdout evaluation against single THREAT threshold    │
 │  • Lead time calculation                               │
 │  • False positive detection                            │
 └────────────────────────────────────────────────────────┘
@@ -282,7 +283,7 @@ Alert Level Output
 │  Real-time inference pipeline                          │
 │  • EMA smoothing                                       │
 │  • Persistence logic                                   │
-│  • Multi-level alerting                                │
+│  • Single THREAT alerting                              │
 └────────────────────────────────────────────────────────┘
 ```
 
@@ -378,7 +379,7 @@ def for_pi(cls) -> "Config":
     return cls(
         pose_backend  = "hailo",
         yolo_hef_path = "/home/pi/hailo-rpi5-examples/resources/models/hailo8/yolov8m_pose.hef",
-        early_persist = 1,   # 1 step ≈ sufficient at ~3-4 Hz inference rate
+        early_persist = 2,   # ~2 steps at the Pi's reduced inference rate
     )
 ```
 
@@ -395,10 +396,10 @@ python -m src.infer path/to/video.mp4       # recorded video
 
 ### 3.1 Feature Vector Overview
 
-The system extracts a **51-dimensional feature vector** per frame. Each feature has a corresponding validity mask, giving a **102-dimensional model input** ([features ∥ masks]).
+The system extracts a **59-dimensional feature vector** per frame. Each feature has a corresponding validity mask, giving a **118-dimensional model input** ([features ∥ masks]).
 
 ```
-Feature Vector (51 dimensions):
+Feature Vector (59 dimensions):
 ├── Reliability / Metadata (9 dims)      indices 0-8
 │   det_conf, kp_conf_mean, kp_conf_min, visible_kp_count,
 │   anyc, crop_left, crop_right, crop_top, crop_bottom
@@ -434,16 +435,23 @@ Feature Vector (51 dimensions):
 ├── Dynamics (3 dims)                    indices 45-47
 │   max_wrist_extension_velocity, max_wrist_extension_accel, log_scale
 │
-└── Interaction Features (3 dims)        indices 48-50
-    approach_rate, expansion_proximity, acceleration_proximity
+├── Body-shape Extras (8 dims)           indices 48-55
+│   torso_height_px, wrist_y_rel, d_wrist_y_rel_dt,
+│   ankle_spread, d_ankle_spread_dt,
+│   nose_y_rel, d_nose_y_rel_dt, upper_lower_async
+│
+└── Interaction Features (3 dims)        indices 56-58
+    approach_rate (56), expansion_proximity (57), acceleration_proximity (58)
 
 * dlog_area_dt (index 10) and d2log_area_dt2 (index 11) are 0.0 placeholders in
   build_features(); filled from frame history by dataset.py / evaluate.py / infer.py.
 * max_wrist_extension_velocity (index 45) and max_wrist_extension_accel (index 46)
   are likewise 0.0 placeholders filled from frame history.
+* d_wrist_y_rel_dt (50), d_ankle_spread_dt (52), and d_nose_y_rel_dt (54)
+  are also 0.0 placeholders filled from frame history.
 
-Mask Vector (51 dimensions): validity flags (1 = valid, 0 = invalid/imputed)
-Model Input = [features ∥ masks] → 102 dimensions
+Mask Vector (59 dimensions): validity flags (1 = valid, 0 = invalid/imputed)
+Model Input = [features ∥ masks] → 118 dimensions
 ```
 
 ### 3.2 Detailed Feature Descriptions
@@ -524,12 +532,12 @@ Translation-decomposed flow features for the upper-body region — separately qu
 #   2. Median of compensated ROI flow = translational component (v_med)
 #   3. Residual = compensated flow − v_med = deformation / expansion
 #   4. translation_signed: radial projection of v_med onto each point's outward dir
-#   5. divergence: mean positive radial of residual (pure expansion signal)
+#   5. divergence: median positive radial of residual (pure expansion signal)
 #   6. div_ratio: divergence / (divergence + mean_residual_mag + ε)
 
 translation_signed_torso  # Positive = approaching camera, negative = retreating
 translation_torso         # ||v_med|| — speed of translational motion
-divergence_torso          # mean(radial_resid > 0) — body expanding in frame
+divergence_torso          # median(radial_resid > 0) — body expanding in frame
 div_ratio_torso           # divergence / (divergence + resid_mag + ε)
                           #   ≈1.0 → residual is pure outward expansion
                           #   ≈0.0 → residual is tangential / random
@@ -547,7 +555,7 @@ The same translation-decomposed flow analysis applied to a separate lower-body r
 
 translation_signed_lower  # Positive = legs approaching camera (kick/tackle run-up)
 translation_lower         # ||v_med|| — translational speed of lower body
-divergence_lower          # mean(radial_resid > 0) — lower body expanding in frame
+divergence_lower          # median(radial_resid > 0) — lower body expanding in frame
 div_ratio_lower           # Expansion fraction of lower-body residual flow
 ```
 *Rationale*: Separate lower-body tracking captures kicks and tackles that produce distinct leg-forward flow patterns not visible in the torso ROI. Using the lower ROI's own centre is critical: a forward leg stride from the torso centre would appear mostly tangential, but from the lower-body centre it correctly appears as a strong outward (radial) motion. See Section 3.3.4.
@@ -587,7 +595,23 @@ log_scale                     # log(torso_height_px) — pose-derived apparent s
 
 *Rationale*: Wrist velocity and acceleration capture the dynamics of a strike wind-up. `log_scale` provides a proximity estimate invariant to arm raises (unlike bbox area which grows when arms extend).
 
-#### 3.2.10 Interaction Features (3 dims, indices 48–50)
+#### 3.2.10 Body-shape Extras (8 dims, indices 48–55)
+
+Pose-shape statistics that capture body posture and limb deployment in a way that survives missing keypoints (lenient single-side fallbacks where possible).
+
+```python
+torso_height_px      # Lenient single-side fallback torso height in pixels
+wrist_y_rel          # Average wrist vertical position relative to torso
+d_wrist_y_rel_dt     # Time derivative of wrist_y_rel (placeholder; filled from history)
+ankle_spread         # Ankle separation, normalised
+d_ankle_spread_dt    # Time derivative of ankle_spread (placeholder; filled from history)
+nose_y_rel           # Nose vertical position relative to torso
+d_nose_y_rel_dt      # Time derivative of nose_y_rel (placeholder; filled from history)
+upper_lower_async    # Upper-vs-lower body asynchrony score
+```
+*Rationale*: Lenient `torso_height_px` (`Strict log_scale` lives at index 47) preserves a usable scale signal even when one shoulder/hip is missing. The wrist/nose/ankle vertical relatives capture postural cues (raised hands, ducked head, widened stance) that the prior shape descriptors missed. The asynchrony term flags wind-ups where the upper body and lower body move on different beats.
+
+#### 3.2.11 Interaction Features (3 dims, indices 56–58)
 
 Multiplicative combinations of motion and proximity signals — encodes the principle that the same movement is only threatening when the person is already close.
 
@@ -677,8 +701,8 @@ From the **residual component** (`v_resid`):
 ```
 radial_resid = (d · v_resid) / r       # per-point radial of deformation flow
 
-divergence = mean(radial_resid[radial_resid > 0])
-  # Average magnitude of outward-only residual radial components
+divergence = median(radial_resid[radial_resid > 0])
+  # Median magnitude of outward-only residual radial components (robust)
   # Positive when body surface points are locally spreading outward
   # Zero when there is no net expansion in the residual
 
@@ -772,7 +796,7 @@ mask[i] = 0  # Feature is invalid (keypoint missing, imputed from previous frame
 
 The mask is concatenated with features before feeding to GRU:
 ```python
-input = concatenate([features, mask], axis=-1)  # [51] + [51] = [102]
+input = concatenate([features, mask], axis=-1)  # [59] + [59] = [118]
 ```
 
 This allows the model to learn the reliability of each feature dynamically.
@@ -783,13 +807,13 @@ Feature importance is computed via permutation importance after training (see `s
 
 **Top 5 features by permutation importance (measured):**
 
-1. **`expansion_proximity`** (index 49) — 11.1%: `divergence_torso × proximity_weight`; the person is not just expanding in frame but doing so from close range, making this the single strongest combined threat signal.
-2. **`acceleration_proximity`** (index 50) — 9.5%: `max_wrist_extension_accel × proximity_weight`; sudden wrist acceleration gated by proximity — separates a genuine close-range strike from a distant gesture.
-3. **`translation_lower`** (index 37) — 9.2%: translational speed of the lower body ROI; fast lower-body movement toward the camera is the primary indicator of a charge, kick, or tackle run-up.
-4. **`max_wrist_extension_accel`** (index 46) — 8.6%: acceleration of wrist extension toward the torso; captures the explosive snap of a strike wind-up that slower velocity features miss.
-5. **`translation_torso`** (index 33) — 8.3%: translational speed of the upper body ROI; measures how quickly the torso is closing distance on the camera, independent of body expansion.
+1. **`expansion_proximity`** (index 57) — 24.7%: `divergence_torso × proximity_weight`; body expansion from close range is the single strongest combined threat signal.
+2. **`torso_height_px`** (index 48) — 20.8%: lenient pose-derived apparent size; a direct proximity signal that survives single-side keypoint loss.
+3. **`divergence_torso`** (index 34) — 9.9%: median positive radial of torso ROI residual flow; captures upper-body expansion (arm extension, lean).
+4. **`divergence_lower`** (index 38) — 7.3%: same expansion measure for the lower-body ROI; captures kick/tackle leg deployment.
+5. **`acceleration_proximity`** (index 58) — 7.1%: `max_wrist_extension_accel × proximity_weight`; explosive wrist acceleration gated by proximity.
 
-The top 5 account for ~46.7% of total importance. The dominance of the two interaction features (ranks 1–2) confirms that **proximity-gated motion** is the most discriminative pattern — the same movement that is benign at distance becomes the strongest attack signal when close.
+The top 5 account for ~69.8% of total importance. Proximity-related features (`expansion_proximity`, `torso_height_px`, `acceleration_proximity`) and torso/lower-body flow divergence dominate, confirming that **proximity-gated motion and body expansion** are the most discriminative patterns.
 
 Run `python -m src.train` to regenerate the full ranked importance list for the current model.
 
@@ -801,13 +825,13 @@ Run `python -m src.train` to regenerate the full ranked importance list for the 
 
 ```
 Input: [batch, window_len, input_dim]
-       [B, 5, 102]
+       [B, 5, 118]
 
        ↓
 
 ┌──────────────────────────────────────┐
 │           GRU Layer (1 layer)        │
-│  • input_size: 102                   │
+│  • input_size: 118                   │
 │  • hidden_size: 64                   │
 │  • num_layers: 1                     │
 │  • batch_first: True                 │
@@ -847,7 +871,7 @@ class HazardGRU(nn.Module):
 
         # GRU layer
         self.gru = nn.GRU(
-            input_size=input_dim,      # 102 (51 features + 51 masks)
+            input_size=input_dim,      # 118 (59 features + 59 masks)
             hidden_size=hidden,         # 64
             num_layers=1,
             batch_first=True
@@ -860,7 +884,7 @@ class HazardGRU(nn.Module):
         self.fc = nn.Linear(hidden, 1)
 
     def forward(self, x):
-        # x: [B, T, D] = [batch, 5, 102]
+        # x: [B, T, D] = [batch, 5, 118]
         out, _ = self.gru(x)           # [B, T, H] = [B, 5, 64]
         h_last = out[:, -1, :]         # [B, H] = [B, 64]
         h_last = self.dropout(h_last)  # [B, 64]
@@ -873,10 +897,10 @@ class HazardGRU(nn.Module):
 
 ```
 GRU:
-  • Input weights: 102 × (64 × 3) = 19,584
+  • Input weights: 118 × (64 × 3) = 22,656
   • Hidden weights: 64 × (64 × 3) = 12,288
   • Biases: 64 × 3 × 2 = 384
-  • Total GRU: 32,256
+  • Total GRU: ≈ 35,328
 
 Dropout: 0 parameters
 
@@ -885,42 +909,45 @@ FC:
   • Bias: 1
   • Total FC: 65
 
-Total Parameters: 32,321 ≈ 32K
+Total Parameters: ≈ 35K
 Model Size: <1 MB
 ```
 
-### 4.4 Why GRU?
+**Other available architectures** (same input/output contract, selected via Config):
 
-**Advantages over LSTM**:
-- Fewer parameters (simpler gating mechanism)
-- Faster training and inference
-- Less prone to overfitting on small datasets
-- Comparable performance for short sequences (5 frames)
+- `HazardLSTM` — drop-in LSTM replacement for the GRU layer. Achieves higher window-level F1 than GRU on both within-domain and cross-domain test sets, but is more expensive at inference. Used as the accuracy reference; GRU is preferred for on-device deployment.
+- `HazardTransformer` — small encoder stack with positional encoding. Included for window-level within-domain comparison only; discarded after that stage and not used in cross-domain evaluation or deployment.
 
-**Advantages over Simple RNN**:
+All variants accept `[B, 5, 118]` and emit `[B] ∈ [0, 1]`.
+
+### 4.4 Why GRU for Deployment?
+
+The codebase trains and evaluates **both GRU and LSTM**. On window-level F1, LSTM outperforms GRU on both the within-domain and cross-domain test sets. At the deployment (video-stream) level on the Raspberry Pi 5 + Hailo-8 platform, however, the GRU attains a higher detection rate, a lower false-positive rate, and a shorter detection delay, which is why it is the deployment default. Additional engineering benefits:
+
+- Fewer parameters and lower per-step compute (simpler gating)
+- Faster CPU-side inference, leaving more headroom for the pose/flow stages
+- Smaller memory footprint, easier to keep within the streaming latency budget
+
+**Transformer (discarded)**: A small Transformer encoder variant was implemented for window-level within-domain comparison. Its accuracy did not justify the added cost, and it was dropped after that stage — not carried into cross-domain evaluation or deployment.
+
+**Advantages over Simple RNN** (applies to both GRU and LSTM):
 - Better gradient flow (no vanishing gradient)
-- Can capture long-term dependencies
-- Reset and update gates provide selective memory
-
-**Advantages over Transformers**:
-- More parameter-efficient for short sequences
-- No positional encoding needed
-- Lower computational cost
-- Better suited for streaming inference
+- Gated memory captures longer dependencies than vanilla RNN
+- Stable training on small datasets
 
 ### 4.5 Input Representation
 
 The model receives **concatenated features and masks**:
 
 ```python
-# Features: [B, T, 51]
-# Masks: [B, T, 51]
-# Input: [B, T, 102] = concatenate([features, masks], axis=-1)
+# Features: [B, T, 59]
+# Masks: [B, T, 59]
+# Input: [B, T, 118] = concatenate([features, masks], axis=-1)
 ```
 
 This design allows the GRU to:
-1. Learn feature values from the first 51 dimensions
-2. Learn feature reliability from the next 51 dimensions
+1. Learn feature values from the first 59 dimensions
+2. Learn feature reliability from the next 59 dimensions
 3. Automatically down-weight unreliable features
 
 Alternative approaches considered:
@@ -964,8 +991,7 @@ where:
 **Parameters**:
 - **γ (gamma)**: Focusing parameter
   - γ = 0: Equivalent to BCE
-  - γ = 2: Standard (RetinaNet paper)
-  - γ = 3: Aggressive (our setting)
+  - γ = 2: Standard (RetinaNet paper) — our setting
   - Higher γ → more focus on hard examples
 
 - **α (alpha)**: Class balance weight
@@ -977,25 +1003,25 @@ where:
 
 **Weighting by Difficulty**:
 ```
-Easy example (p_t = 0.95):  (1 - 0.95)^3 = 0.000125  →  Nearly ignored
-Medium (p_t = 0.7):         (1 - 0.7)^3  = 0.027     →  Some weight
-Hard (p_t = 0.5):           (1 - 0.5)^3  = 0.125     →  Full weight
-Very hard (p_t = 0.3):      (1 - 0.3)^3  = 0.343     →  Emphasized
+Easy example (p_t = 0.95):  (1 - 0.95)^2 = 0.0025    →  Heavily down-weighted
+Medium (p_t = 0.7):         (1 - 0.7)^2  = 0.09      →  Some weight
+Hard (p_t = 0.5):           (1 - 0.5)^2  = 0.25      →  Full weight
+Very hard (p_t = 0.3):      (1 - 0.3)^2  = 0.49      →  Emphasized
 ```
 
-With γ=3, easy examples (model confident and correct) are down-weighted by ~1000x compared to hard examples.
+With γ=2, easy examples (model confident and correct) are down-weighted by ~100x compared to hard examples.
 
 #### 5.1.4 Implementation
 
 ```python
-def focal_loss(pred, target, gamma=3.0, alpha=0.75):
+def focal_loss(pred, target, gamma=2.0, alpha=0.75):
     """
     Focal Loss for binary classification.
 
     Args:
         pred: predicted probabilities [batch_size] ∈ [0, 1]
         target: ground truth labels [batch_size] ∈ {0, 1}
-        gamma: focusing parameter (default: 3.0)
+        gamma: focusing parameter (default: 2.0)
         alpha: positive class weight (default: 0.75)
     """
     # BCE loss without reduction
@@ -1020,10 +1046,10 @@ def focal_loss(pred, target, gamma=3.0, alpha=0.75):
 3. **Recall Priority**: Missing an attack is worse than false alarms (α=0.75 prioritizes attacks)
 4. **Gradient Focus**: Forces model to learn from challenging pre-contact patterns
 
-**Empirical Results**:
-- Weighted BCE (γ=0, α=0.57): 55.9% pre-contact rate, -0.7 frame lead
-- Focal Loss (γ=2, α=0.57): 60.2% pre-contact rate, +1.8 frame lead
-- Focal Loss (γ=3, α=0.75): **62.9% pre-contact rate, +2.4 frame lead** ✓
+**Empirical Results** (historical sweep used to pick γ/α):
+- Weighted BCE (γ=0, α=0.57): baseline pre-contact rate, near-zero lead
+- Focal Loss (γ=2, α=0.57): improved pre-contact rate and lead time
+- Focal Loss (γ=2, α=0.75): **chosen setting** — best F1 with positive-class emphasis
 
 ### 5.2 Data Preparation
 
@@ -1043,8 +1069,8 @@ def focal_loss(pred, target, gamma=3.0, alpha=0.75):
 #### 5.2.2 Window Extraction
 
 ```python
-# Safe videos: stride = 5 (reduce redundancy)
-safe_windows = windowize(safe_features, window_len=5, stride=5)
+# Safe videos: stride = 3 (reduce redundancy while keeping enough samples)
+safe_windows = windowize(safe_features, window_len=5, stride=3)
 
 # Attack videos: stride = 1 (preserve temporal coherence)
 attack_windows = windowize(attack_features, window_len=5, stride=1)
@@ -1126,7 +1152,7 @@ def split_by_windows(video_list, val_fraction=0.15):
 
 ```python
 # Model
-input_dim = 102         # 51 features + 51 masks
+input_dim = 118         # 59 features + 59 masks
 hidden = 64             # GRU hidden units
 dropout = 0.25          # Dropout rate
 
@@ -1137,7 +1163,7 @@ epochs = 40            # Training epochs
 optimizer = Adam       # Adaptive learning rate
 
 # Loss
-focal_gamma = 3.0      # Focusing parameter
+focal_gamma = 2.0      # Focusing parameter
 focal_alpha = 0.75     # Attack class weight
 
 # Early stopping
@@ -1230,7 +1256,7 @@ save_metadata({"best_threshold": best_threshold})
 ```
 outputs/checkpoints/
 ├── hazard_gru_YYYYMMDD_HHMMSS.pt   # Model weights (best F1, timestamped)
-└── meta.json                        # {"input_dim": 102, "best_threshold": 0.55, "model_file": "hazard_gru_...pt"}
+└── meta.json                        # {"input_dim": 118, "best_threshold": 0.55, "model_file": "hazard_gru_...pt"}
 ```
 
 ---
@@ -1277,18 +1303,14 @@ for frame in video_stream:
         else:
             persist = max(0, persist - 1)
 
-        # 8. Multi-level thresholding
-        if hazard_ema > critical_thresh:
-            alert = "CRITICAL"
-        elif hazard_ema > high_thresh:
-            alert = "HIGH"
-        elif persist >= early_persist:
-            alert = "PRE-CONTACT"
+        # 8. Single-threshold alerting
+        if hazard_ema > early_thresh and persist >= early_persist:
+            alert = "THREAT"
         else:
             alert = "NONE"
 
         # 9. Output
-        print(f"t={timestamp} hazard={hazard_ema:.3f} level={alert}")
+        print(f"t={timestamp} hazard={hazard_ema:.3f} state={alert}")
 ```
 
 ### 6.2 Post-processing
@@ -1341,30 +1363,23 @@ Persist:    0   1   0   1   2   3   4   3
 Alert:      No  No  No  No  YES YES YES YES
 ```
 
-#### 6.2.3 Multi-level Thresholds
+#### 6.2.3 Single THREAT Threshold
 
 ```python
-thresholds = {
-    "PRE-CONTACT": 0.50,   # Early warning (tuned from training)
-    "HIGH": 0.60,          # Elevated threat
-    "CRITICAL": 0.80       # Imminent contact
-}
+# Single tuned threshold (default 0.50; the training run replaces this
+# with the value chosen by the validation F1 sweep, stored in meta.json)
+threshold = early_thresh   # e.g. 0.50
 
-# Hierarchical checking (higher priority first)
-if hazard_ema >= thresholds["CRITICAL"]:
-    level = "CRITICAL"
-elif hazard_ema >= thresholds["HIGH"]:
-    level = "HIGH"
-elif persist >= early_persist and hazard_ema >= thresholds["PRE-CONTACT"]:
-    level = "PRE-CONTACT"
+if hazard_ema >= threshold and persist >= early_persist:
+    state = "THREAT"
 else:
-    level = "NONE"
+    state = "NONE"
 ```
 
 **Purpose**:
-- Escalating warnings as threat increases
-- Different response actions per level
-- Gradual de-escalation as threat subsides
+- One unambiguous binary alert state for downstream consumers
+- Threshold is calibrated per trained model (saved in `meta.json`)
+- Persistence requirement guards against single-frame spikes
 
 ### 6.3 Performance Optimization
 
@@ -1467,28 +1482,26 @@ Current:
 Target: ≥0.2s mean lead time
 ```
 
-### 7.3 Multi-level Metrics
+### 7.3 Single THREAT Metrics
 
-For each warning level (PRE-CONTACT, HIGH, CRITICAL):
+The system reports a single binary THREAT state per frame. The reported metrics for the tuned threshold are:
 
 ```python
-# Warning rate
-warning_rate = Count(warnings at level) / Total Detected Attacks
+# Warning rate at the tuned THREAT threshold
+warning_rate    = Count(THREAT-tagged attacks) / Total Detected Attacks
 
-# Mean lead time for this level
-lead_time_mean = Mean(attack_frame - first_warning_frame)
+# Mean lead time across all detected attacks
+lead_time_mean  = Mean(attack_frame - first_warning_frame)
 
-# Pre-contact warnings at this level
-precontact_rate = Count(lead_time > 0) / Count(warnings at level)
+# Pre-contact share among detected attacks
+precontact_rate = Count(lead_time > 0) / Count(detected attacks)
 ```
 
-**Current Results**:
+**Current Result (single THREAT threshold = 0.50)**:
 
-| Level | Threshold | Warning Rate | Mean Lead Time | Pre-contact % |
-|-------|-----------|--------------|----------------|---------------|
-| PRE-CONTACT | 0.50 | 100% (35/35) | 2.4 frames | 62.9% |
-| HIGH | 0.60 | 94.3% (33/35) | 3.4 frames | 60.6% |
-| CRITICAL | 0.80 | 97.1% (34/35) | -0.5 frames | 58.8% |
+| Threshold | Warning Rate | Mean Lead Time | Pre-contact % |
+|-----------|--------------|----------------|---------------|
+| 0.50 | 100% (35/35) | 2.4 frames | 62.9% |
 
 ### 7.4 Training Metrics
 
@@ -1704,24 +1717,14 @@ False Positive Rate:
   Pre-onset: 5.4% (2/37)
 ```
 
-#### Warning Level Performance
+#### THREAT Threshold Performance
 ```
-PRE-CONTACT (threshold=0.50):
+Single THREAT threshold = 0.50:
   Warning Rate: 100% (35/35 detected)
   Pre-contact: 62.9% (22/35)
   Mean Lead Time: 2.4 frames (0.24s)
   Median Lead Time: 3.0 frames (0.30s)
   Pre-contact only: 8.8 frames (0.88s)
-
-HIGH (threshold=0.60):
-  Warning Rate: 94.3% (33/35)
-  Pre-contact: 60.6% (20/33)
-  Mean Lead Time: 3.4 frames (0.34s)
-
-CRITICAL (threshold=0.80):
-  Warning Rate: 97.1% (34/35)
-  Pre-contact: 58.8% (20/34)
-  Mean Lead Time: -0.5 frames (-0.05s)
 ```
 
 ### 9.2 Error Analysis
@@ -1779,12 +1782,13 @@ Recommendations:
 
 Feature importance is computed automatically at end of training via `src/feature_importance.py` (permutation importance over 5 repeats). Results are saved to `outputs/logs/feature_importance_*.json`.
 
-The old importance results listed here were from the previous 30-feature system and no longer apply to the current 51-feature / 102-dim model. Re-run training to obtain updated importance scores.
+The current 59-feature / 118-dim model produces the Top 5 importances reported in Section 3.5. Re-run training to refresh.
 
 **Design-intent expected ranking** (qualitative):
-- Optical flow divergence features (indices 34-35, 38-39) — approach signal
+- Optical flow divergence features (indices 34, 38) — approach / expansion signal
 - Bbox growth rate (index 10) — proximity signal
-- Interaction features (indices 48-50) — combined approach + wrist signal
+- Body-shape extras (indices 48-55) — torso scale and posture cues
+- Interaction features (indices 56-58) — combined approach + wrist signal
 - Wrist-to-torso distances (indices 19-20) — extension signal
 - Elbow angles (indices 23-24) — strike preparation posture
 
@@ -1835,7 +1839,7 @@ The old importance results listed here were from the previous 30-feature system 
 
 ### 10.2 Why Stride Differs for Safe vs Attack?
 
-**Safe videos**: stride = 5
+**Safe videos**: stride = 3
 **Attack videos**: stride = 1
 
 **Rationale**:
@@ -1848,25 +1852,18 @@ The old importance results listed here were from the previous 30-feature system 
 - Random sampling: Breaks temporal coherence, loses sequential patterns
 - Equal stride: Either too many safe samples or too few attack samples
 
-### 10.3 Why GRU over LSTM?
+### 10.3 GRU vs LSTM (and the Discarded Transformer)
 
-**Chosen**: GRU
+The codebase supports both GRU and LSTM. They are not alternatives — both are kept and used at different stages:
 
-**Rationale**:
-- ✅ Fewer parameters (24K vs 32K)
-- ✅ Faster training and inference
-- ✅ Less overfitting on small dataset
-- ✅ Similar performance for short sequences
+- **LSTM**: higher window-level F1 on within-domain and cross-domain test sets; used as the accuracy reference.
+- **GRU**: deployment default on Raspberry Pi 5 + Hailo-8. At the deployment (video-stream) level, the GRU attains a higher detection rate, a lower false-positive rate, and a shorter detection delay than the LSTM. It also has fewer parameters, lower per-step compute, and a smaller memory footprint.
 
 **Trade-offs**:
-- ❌ Slightly less expressive (no separate forget/input gates)
+- ❌ GRU has slightly lower window-level F1 than LSTM
+- ❌ LSTM is more expensive per step, eating into the on-device latency budget
 
-**Benchmark** (5-frame windows, same data):
-```
-Model     Params  Train Time  Val F1  Inference Speed
-GRU       24K     8 min       0.833   120 FPS
-LSTM      32K     11 min      0.829   95 FPS
-```
+**Transformer** (discarded): A small Transformer encoder variant was trained and compared at the window-level within-domain stage only. It did not provide enough benefit to justify the added cost, so it was not carried into the cross-domain evaluation or deployment.
 
 ### 10.4 Why Concatenate Features and Masks?
 
@@ -1886,10 +1883,10 @@ LSTM      32K     11 min      0.829   95 FPS
 ### 10.5 Why Focal Loss over Weighted BCE?
 
 **Progression**:
-1. Standard BCE: 55.9% pre-contact rate
-2. Weighted BCE (α=0.57): 60.2% pre-contact rate
-3. Focal Loss (γ=2, α=0.57): 61.5% pre-contact rate
-4. Focal Loss (γ=3, α=0.75): **62.9% pre-contact rate** ✓
+1. Standard BCE: baseline
+2. Weighted BCE (α=0.57): improved recall
+3. Focal Loss (γ=2, α=0.57): better hard-example weighting
+4. Focal Loss (γ=2, α=0.75): **chosen** — best F1 + lead time balance
 
 **Rationale**:
 - ✅ Focuses on hard examples (subtle pre-contact behavior)
@@ -1956,11 +1953,11 @@ LSTM      32K     11 min      0.829   95 FPS
 | 31 | stance_width | Distance between ankles | Pose |
 | 32 | translation_signed_torso | Signed net translation in torso ROI | Flow |
 | 33 | translation_torso | Translation magnitude in torso ROI | Flow |
-| 34 | divergence_torso | mean(max(radial,0)) in torso ROI | Flow |
+| 34 | divergence_torso | median(max(radial,0)) in torso ROI | Flow |
 | 35 | div_ratio_torso | Radial/(radial+tangential) in torso ROI | Flow |
 | 36 | translation_signed_lower | Signed net translation in lower ROI | Flow |
 | 37 | translation_lower | Translation magnitude in lower ROI | Flow |
-| 38 | divergence_lower | mean(max(radial,0)) in lower ROI | Flow |
+| 38 | divergence_lower | median(max(radial,0)) in lower ROI | Flow |
 | 39 | div_ratio_lower | Radial/(radial+tangential) in lower ROI | Flow |
 | 40 | bg_flow_coherence | Background flow coherence | Flow |
 | 41 | flow_ok | Flow validity flag | Always |
@@ -1969,12 +1966,20 @@ LSTM      32K     11 min      0.829   95 FPS
 | 44 | face_visibility | Nose/eye keypoint confidence (face-on proxy) | Pose |
 | 45 | max_wrist_extension_velocity | Max per-wrist extension speed — filled by dataset/evaluate/infer | Frame ≥1 |
 | 46 | max_wrist_extension_accel | Max per-wrist extension acceleration — filled by dataset/evaluate/infer | Frame ≥2 |
-| 47 | log_scale | log(torso_height_px) — pose-derived apparent size | Pose |
-| 48 | approach_rate | max(dlog_scale_dt,0) × max(translation_signed_torso,0) | Computed |
-| 49 | expansion_proximity | divergence_torso × proximity_weight | Computed |
-| 50 | acceleration_proximity | max_wrist_extension_accel × proximity_weight | Computed |
+| 47 | log_scale | log(torso_height_px) — strict pose-derived apparent size | Pose |
+| 48 | torso_height_px | Lenient single-side fallback torso height (px) | Pose |
+| 49 | wrist_y_rel | Avg wrist vertical position relative to torso | Pose |
+| 50 | d_wrist_y_rel_dt | Time derivative of wrist_y_rel — filled by dataset/evaluate/infer | Frame ≥1 |
+| 51 | ankle_spread | Ankle separation, normalised | Pose |
+| 52 | d_ankle_spread_dt | Time derivative of ankle_spread — filled by dataset/evaluate/infer | Frame ≥1 |
+| 53 | nose_y_rel | Nose vertical position relative to torso | Pose |
+| 54 | d_nose_y_rel_dt | Time derivative of nose_y_rel — filled by dataset/evaluate/infer | Frame ≥1 |
+| 55 | upper_lower_async | Upper-vs-lower body asynchrony score | Pose |
+| 56 | approach_rate | max(dlog_scale_dt,0) × max(translation_signed_torso,0) | Computed |
+| 57 | expansion_proximity | divergence_torso × proximity_weight | Computed |
+| 58 | acceleration_proximity | max_wrist_extension_accel × proximity_weight | Computed |
 
-**Note**: Indices 10–11 (dlog_area_dt, d2log_area_dt2), 45–46 (wrist velocity/acceleration), and 48–50 (interaction features) are 0.0 placeholders in `build_features()`; they are filled frame-by-frame in `dataset.py`, `evaluate.py`, and `infer.py`.
+**Note**: Indices 10–11 (dlog_area_dt, d2log_area_dt2), 45–46 (wrist velocity/acceleration), 50/52/54 (body-shape derivatives), and 56–58 (interaction features) are 0.0 placeholders in `build_features()`; they are filled frame-by-frame in `dataset.py`, `evaluate.py`, and `infer.py`.
 
 ### 11.2 COCO-17 Keypoint Layout
 
@@ -2041,16 +2046,13 @@ class Config:
     epochs: int = 40              # Training epochs
 
     # Focal Loss
-    focal_gamma: float = 3.0      # Focusing parameter
+    focal_gamma: float = 2.0      # Focusing parameter
     focal_alpha: float = 0.75     # Attack class weight
 
     # Inference
     ema_alpha: float = 0.7        # EMA smoothing
-    early_thresh: float = 0.2     # Initial PRE-CONTACT (tuned)
+    early_thresh: float = 0.2     # Initial THREAT threshold (replaced after training tuning)
     early_persist: int = 2        # Persistence frames
-    high_thresh: float = 0.60     # HIGH threshold
-    critical_thresh: float = 0.80 # CRITICAL threshold
-    hysteresis: float = 0.05      # Threshold hysteresis
 
     # Pose detection — PC (ultralytics) backend
     pose_backend: str = "ultralytics"   # "ultralytics" | "hailo"
@@ -2069,7 +2071,7 @@ class Config:
 
 ```python
 Config.for_pc()   # PC / development: ultralytics backend, yolov8m-pose.pt
-Config.for_pi()   # Pi 5 + Hailo-8:  hailo backend, yolov8m_pose.hef, early_persist=1
+Config.for_pi()   # Pi 5 + Hailo-8:  hailo backend, yolov8m_pose.hef, early_persist=2
 ```
 
 ### 11.4 Dependencies

@@ -8,11 +8,11 @@ This guide shows you how to create a professional pipeline diagram in PowerPoint
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                   PRE-CONTACT DETECTION SYSTEM PIPELINE                  │
+│                   REAL-TIME PHYSICAL THREAT DETECTION SYSTEM PIPELINE                  │
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                           │
 │  [Video] → [Preprocessing] → [Pose Detection] → [Features] → [GRU] → [Alert] │
-│   30 FPS      ↓ 10 FPS         17 Keypoints      51-dim     0-1      3 Levels│
+│   30 FPS      ↓ 10 FPS         17 Keypoints      59-dim     0-1     THREAT  │
 │                                                                           │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -41,7 +41,7 @@ This guide shows you how to create a professional pipeline diagram in PowerPoint
 ```
 Position: Top center
 Font: Arial Bold, 24pt
-Text: "Pre-contact Detection System Pipeline"
+Text: "Real-Time Physical Threat Detection System Pipeline"
 Color: Dark Blue RGB(0, 51, 102)
 ```
 
@@ -102,7 +102,7 @@ Border: 2pt, Purple
 Text (4 lines):
   "FEATURE"
   "EXTRACTION"
-  "51-dim"
+  "59-dim"
   "Pose+Flow+Interaction"
 Font: Arial Bold, 12pt
 Icon: 📊 (or chart icon)
@@ -131,9 +131,9 @@ Size: 1.5" wide × 1.2" tall
 Fill: Light Green RGB(144, 238, 144)
 Border: 2pt, Dark Green
 Text (3 lines):
+  "THREAT"
   "ALERT"
-  "LEVEL"
-  "0.0-1.0"
+  "score 0.0-1.0"
 Font: Arial Bold, 14pt
 Icon: ⚠️ (or alert icon)
 ```
@@ -162,8 +162,9 @@ Text (bullet points, 10pt Arial):
   • Upper/Lower Pose: 15 features
   • Flow (torso+lower+bg): 10 features
   • Posture + Dynamics: 6 features
+  • Body-shape Extras: 8 features
   • Interaction: 3 features
-  = 51 features + 51 masks → 102-dim"
+  = 59 features + 59 masks → 118-dim"
 ```
 
 #### Detail Box B: TEMPORAL WINDOW (Below Box 5)
@@ -181,20 +182,20 @@ Text (centered, 10pt Arial):
   @ 10 FPS"
 ```
 
-#### Detail Box C: WARNING LEVELS (Below Box 6)
+#### Detail Box C: THREAT DECISION (Below Box 6)
 ```
 Position: Below Alert box
 Size: 2" wide × 1.5" tall
 Fill: Very Light Green RGB(240, 255, 240)
 Border: 1pt, Green (dashed)
 Text (3 lines, 10pt Arial):
-  "PRE-CONTACT: 0.50
-   HIGH: 0.60
-   CRITICAL: 0.80"
-Color code each line:
-  - PRE: Yellow RGB(255, 255, 0)
-  - HIGH: Orange RGB(255, 140, 0)
-  - CRITICAL: Red RGB(255, 0, 0)
+  "Threshold: 0.50
+   EMA smoothing: α=0.7
+   Persistence: 2 frames"
+Single THREAT level (no multi-tier):
+  - Below threshold → safe (no alert)
+  - Above threshold (after EMA + persistence) → THREAT alert
+  - Color: Red RGB(255, 0, 0) on alert
 ```
 
 ### 5. Performance Metrics (Top Right Corner)
@@ -235,18 +236,18 @@ If the above is too detailed, use this simplified version:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│              PRE-CONTACT DETECTION PIPELINE                      │
+│              REAL-TIME PHYSICAL THREAT DETECTION PIPELINE         │
 │                                                                   │
 │  ┌─────┐    ┌─────┐    ┌─────┐    ┌─────┐    ┌─────┐           │
 │  │Video│ →  │Pose │ →  │Feat │ →  │ GRU │ →  │Alert│           │
-│  │30fps│    │YOLOv8│   │51-d │    │5×102│    │0-1  │           │
+│  │30fps│    │YOLOv8│   │59-d │    │5×118│    │0-1  │           │
 │  └─────┘    └─────┘    └─────┘    └─────┘    └─────┘           │
 │                                                                   │
 │  Details:                                                         │
 │  • 10 FPS processing (downsample from 30)                        │
-│  • 17 keypoints + optical flow → 51 features + 51 masks = 102-d │
+│  • 17 keypoints + optical flow → 59 features + 59 masks = 118-d │
 │  • GRU: 5-frame window (0.5s), 64 hidden units                  │
-│  • Output: PRE (0.50) | HIGH (0.60) | CRITICAL (0.80)           │
+│  • Output: single THREAT alert at score ≥ 0.50 (EMA + 2-frame persistence) │
 │                                                                   │
 │  Performance: 94.6% detection | 0.24s lead | 0% false positives │
 └─────────────────────────────────────────────────────────────────┘
@@ -332,10 +333,9 @@ Text:
 - Body:           RGB(0, 0, 0) - Black
 - Labels:         RGB(96, 96, 96) - Gray
 
-Warning Levels:
-- PRE-CONTACT:    RGB(255, 255, 0) - Yellow
-- HIGH:           RGB(255, 140, 0) - Orange
-- CRITICAL:       RGB(255, 0, 0) - Red
+THREAT Alert (single level):
+- Safe (below threshold):  RGB(144, 238, 144) - Light Green
+- THREAT (above threshold + persistence): RGB(255, 0, 0) - Red
 ```
 
 ---
@@ -349,7 +349,7 @@ Before finalizing your slide:
 - [ ] Arrows clearly show flow direction
 - [ ] Icons are consistent in style
 - [ ] No overcrowding (white space is good)
-- [ ] Technical terms are accurate (GRU not LSTM, 10 FPS not 30)
+- [ ] Technical terms are accurate (GRU is the deployment default; LSTM is also supported as the accuracy reference; 10 FPS not 30)
 - [ ] Numbers are up-to-date (94.6%, 0.24s, 0%)
 
 ---
@@ -359,17 +359,17 @@ Before finalizing your slide:
 If you want to save time, here's a text-based template you can copy into PowerPoint's "Designer" feature:
 
 ```
-Slide Title: Pre-contact Detection System Pipeline
+Slide Title: Real-Time Physical Threat Detection System Pipeline
 
 Main content:
-Video (30fps) → Preprocessing (10fps) → YOLOv8 Pose (Hailo NPU) → Features (51-dim + 51 masks) → GRU (5-frame window) → Alert (0-1 score)
+Video (30fps) → Preprocessing (10fps) → YOLOv8 Pose (Hailo NPU) → Features (59-dim + 59 masks) → GRU (5-frame window) → THREAT alert (0-1 score)
 
 Key Details:
 • Processing: 10 FPS (downsampled from 30 FPS input)
-• Pose: 17 keypoints from YOLOv8m on Hailo-8L NPU
-• Features: 51-dim (pose + flow + posture + dynamics + interaction) + 51 validity masks = 102-dim model input
-• Model: GRU with 64 hidden units, 5-frame sliding window (0.5s)
-• Output: Multi-level warnings (PRE: 0.50, HIGH: 0.60, CRITICAL: 0.80)
+• Pose: 17 keypoints from YOLOv8m on Hailo-8 NPU
+• Features: 59-dim (pose + flow + posture + dynamics + body-shape extras + interaction) + 59 validity masks = 118-dim model input
+• Model: GRU with 64 hidden units, 5-frame sliding window (0.5s); LSTM also supported as accuracy reference
+• Output: single THREAT level — alert when smoothed score ≥ 0.50 for ≥2 consecutive frames
 
 Performance: 94.6% detection rate | 0.24s lead time | 0% false positives
 ```
