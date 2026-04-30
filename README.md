@@ -547,7 +547,7 @@ If you use this project in your research, please cite:
 
 ```bibtex
 @software{live_assault_detection_2025,
-  author = {Anthony Wang},
+  author = {A.R.W.},
   title = {Real-Time Physical Threat Detection System},
   year = {2026},
   url = {https://github.com/arw5902/live-assault-detection}
