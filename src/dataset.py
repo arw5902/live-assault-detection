@@ -35,7 +35,7 @@ def extract_sequences(video_path: str, label_mode: str, detector, cfg) -> Tuple[
     for _, frame in iter_video_frames(video_path, cfg.frame_stride):
         det = detector.infer(frame)
         if det is None:
-            # no detection -> skip timestep (keeps windows contiguous over remaining timesteps)
+            # skip — keeps windows contiguous over remaining timesteps
             continue
 
         bbox, track_age, lost = tracker.update(det["bbox"])
@@ -48,7 +48,7 @@ def extract_sequences(video_path: str, label_mode: str, detector, cfg) -> Tuple[
             fstate = FeatureState(cfg.carry_forward_steps)
             fstate.init(len(x))
 
-        # Impute values only; keep mask bits to let the GRU learn missingness
+        # Impute values only; keep mask bits to let the model learn missingness
         x = fstate.impute(x, m)
 
         feats.append(x)
@@ -78,11 +78,11 @@ def extract_sequences(video_path: str, label_mode: str, detector, cfg) -> Tuple[
     X[:, 11] = d2
     # Update masks: frame 0 has no prior → dlog_area_dt invalid; frames 0-1 → d2 invalid
     if len(log_area) >= 2:
-        M[1:, 10] = 1.0   # valid from frame 1 onward
-        M[0, 10] = 0.0    # frame 0 has no derivative
+        M[1:, 10] = 1.0
+        M[0, 10] = 0.0
     if len(log_area) >= 3:
-        M[2:, 11] = 1.0   # valid from frame 2 onward
-        M[:2, 11] = 0.0   # frames 0-1 have no second derivative
+        M[2:, 11] = 1.0
+        M[:2, 11] = 0.0
 
     # Compute wrist extension dynamics at indices 45-46:
     # x[19]=dist_l_wrist_torso, x[20]=dist_r_wrist_torso
@@ -104,7 +104,7 @@ def extract_sequences(video_path: str, label_mode: str, detector, cfg) -> Tuple[
 
     X[:, 45] = np.maximum(vel_l, vel_r)
     X[:, 46] = np.maximum(accel_l, accel_r)
-    # Update masks: velocity valid from frame 1, acceleration valid from frame 2
+    # Update masks: velocity valid from frame 1, acceleration from frame 2
     if len(vel_l) >= 1:
         M[1:, 45] = 1.0
         M[0, 45] = 0.0
@@ -121,7 +121,7 @@ def extract_sequences(video_path: str, label_mode: str, detector, cfg) -> Tuple[
     if len(log_scale) >= 2:
         dlog_scale_dt[1:] = (log_scale[1:] - log_scale[:-1]) / dt
 
-    # ── Phase E derivatives: wrist_y_rel (50), ankle_spread (52), nose_y_rel (54) ──
+    # ── derivatives: wrist_y_rel (50), ankle_spread (52), nose_y_rel (54) ──
     # Pattern: raw value at even index, derivative at odd index.
     # Derivative valid only when both current and previous raw values are valid.
     for raw_idx, deriv_idx in [(49, 50), (51, 52), (53, 54)]:
@@ -136,27 +136,19 @@ def extract_sequences(video_path: str, label_mode: str, detector, cfg) -> Tuple[
         X[:, deriv_idx] = d_raw
         M[:, deriv_idx] = d_mask
 
-    # Add interaction features: motion × proximity coupling
-    # These encode "motion is only threatening when person is close AND approaching"
-    # Append 3 new features after existing 56 base → total 59 features
-    trans_signed_torso = X[:, 32]   # signed: positive=approaching, negative=retreating
-    divergence_torso = X[:, 34]     # torso divergence
+    # Batched mirror of features.py:add_interaction_features — see that function
+    # for the rationale (proximity-gated motion, scale_for_weight fallback, etc.).
+    trans_signed_torso = X[:, 32]
+    divergence_torso = X[:, 34]
     wrist_accel = X[:, 46]
 
-    # approach_rate: only positive when BOTH scale is growing AND flow is toward camera.
-    # A person lifting his leg 5m away barely changes apparent size → dlog_scale_dt ≈ 0 → approach_rate ≈ 0.
-    # A retreating person has trans_signed_torso < 0 → approach_rate = 0.
     approach_rate = np.maximum(dlog_scale_dt, 0.0) * np.maximum(trans_signed_torso, 0.0)
 
-    # Proximity weight: prefer log_scale (strict, index 47) when valid; fall back to
-    # log(torso_ht_px) (lenient, index 48) when log_scale is invalid (ok=0) so that
-    # a stale carry-forward doesn't inflate expansion_proximity for a far person.
-    # Exponent from cfg.proximity_exponent; must match features.py add_interaction_features().
-    ls_valid = M[:, 47] > 0.5          # log_scale valid mask
-    th_valid = M[:, 48] > 0.5          # torso_ht_px valid mask
-    scale_for_weight = log_scale.copy()                                   # default: log_scale (may be stale)
-    use_torso = (~ls_valid) & th_valid                                    # ls invalid but torso_ht_px valid
-    scale_for_weight[use_torso] = np.log(np.maximum(X[use_torso, 48], 1.0))  # log(torso_ht_px) fallback
+    ls_valid = M[:, 47] > 0.5
+    th_valid = M[:, 48] > 0.5
+    scale_for_weight = log_scale.copy()
+    use_torso = (~ls_valid) & th_valid
+    scale_for_weight[use_torso] = np.log(np.maximum(X[use_torso, 48], 1.0))
     proximity_weight = np.exp(scale_for_weight * cfg.proximity_exponent)
 
     expansion_proximity = divergence_torso * proximity_weight
@@ -164,17 +156,17 @@ def extract_sequences(video_path: str, label_mode: str, detector, cfg) -> Tuple[
 
     interaction_features = np.stack([approach_rate, expansion_proximity, acceleration_proximity], axis=1)
     X = np.concatenate([X, interaction_features], axis=1)
+    assert X.shape[1] == 59, f"feature matrix has {X.shape[1]} columns after interaction concat, expected 59"
 
     # Extend masks for new features (all valid if flow_ok)
     flow_ok_mask = M[:, 41].copy()  # flow_ok is at index 41
     interaction_masks = np.tile(flow_ok_mask.reshape(-1, 1), (1, 3))
     M = np.concatenate([M, interaction_masks], axis=1)
 
-    # Targets
     if label_mode == "safe":
         y = np.zeros((X.shape[0],), dtype=np.float32)
     else:
-        # Attack videos are trimmed to start from onset - all frames are attack
+        # Attack videos are trimmed to start from onset — all frames are attack
         y = np.ones((X.shape[0],), dtype=np.float32)
 
     return X, M, y

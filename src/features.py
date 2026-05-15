@@ -67,10 +67,8 @@ class TemporalDerivatives:
             x[52] d_ankle_spread_dt, m[52]
             x[54] d_nose_y_rel_dt,   m[54]
 
-        Returns
-        -------
-        dlog_scale_dt : float
-            Needed by add_interaction_features().
+        Returns:
+            dlog_scale_dt — needed by add_interaction_features().
         """
         log_area  = float(x[9])
         dist_l    = float(x[19])
@@ -739,7 +737,7 @@ def build_features(
     # Indices 10, 11 (dlog_area_dt, d2log_area_dt2) and 45, 46 (wrist vel/accel) are
     # 0.0 placeholders filled by dataset.py / evaluate.py / infer.py from frame history.
     # Similarly 50, 52, 54 are derivative placeholders filled by TemporalDerivatives.
-    # Mark invalid here so the GRU knows they are not yet computed.
+    # Mark invalid here so the model knows they are not yet computed.
     m[10] = 0.0
     m[11] = 0.0
     m[45] = 0.0
@@ -767,6 +765,7 @@ def build_features(
         "roi_torso": roi_torso,
         "roi_lower": roi_lower,
     }
+    assert x.shape[0] == 56, f"build_features returned {x.shape[0]}-dim vector, expected 56 base features"
     return x, m, debug, curr_gray
 
 def add_interaction_features(
@@ -796,7 +795,6 @@ def add_interaction_features(
         m_aug: augmented mask vector [59]
     """
     # Extract base features
-    log_scale = x[47]            # pose-derived log apparent size (index 47)
     trans_signed_torso = x[32]  # signed flow: positive=approaching, negative=retreating
     divergence_torso = x[34]    # torso divergence
 
@@ -829,4 +827,5 @@ def add_interaction_features(
     x_aug = np.concatenate([x, [approach_rate, expansion_proximity, acceleration_proximity]])
     m_aug = np.concatenate([m, [flow_ok_val, flow_ok_val, flow_ok_val]])
 
+    assert x_aug.shape[0] == 59, f"add_interaction_features returned {x_aug.shape[0]}-dim vector, expected 59"
     return x_aug, m_aug

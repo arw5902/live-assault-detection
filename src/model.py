@@ -1,10 +1,10 @@
-import math
 import torch
 import torch.nn as nn
 
 class HazardGRU(nn.Module):
     def __init__(self, input_dim: int, hidden: int = 64, dropout: float = 0.25):
         super().__init__()
+        assert input_dim == 118, f"HazardGRU expects input_dim=118 (59 features + 59 masks), got {input_dim}"
 
         # 1-layer GRU (dropout inside GRU has no effect when num_layers=1)
         self.gru = nn.GRU(
@@ -38,6 +38,7 @@ class HazardGRU(nn.Module):
 class HazardLSTM(nn.Module):
     def __init__(self, input_dim: int, hidden: int = 64, dropout: float = 0.25):
         super().__init__()
+        assert input_dim == 118, f"HazardLSTM expects input_dim=118 (59 features + 59 masks), got {input_dim}"
 
         self.lstm = nn.LSTM(
             input_size=input_dim,
@@ -81,8 +82,9 @@ class HazardTransformer(nn.Module):
 
     def __init__(self, input_dim: int, d_model: int = 64, nhead: int = 4,
                  num_layers: int = 1, dim_feedforward: int = 128,
-                 dropout: float = 0.25, max_seq_len: int = 32):
+                 dropout: float = 0.25, max_seq_len: int = 5):  # = Config.window_len
         super().__init__()
+        assert input_dim == 118, f"HazardTransformer expects input_dim=118 (59 features + 59 masks), got {input_dim}"
 
         self.input_proj = nn.Linear(input_dim, d_model)
 
@@ -122,48 +124,3 @@ class HazardTransformer(nn.Module):
         y = torch.sigmoid(y)
 
         return y.squeeze(1)                       # [B]
-
-
-class HazardCNN(nn.Module):
-    """
-    Lightweight 1-D temporal CNN for hazard scoring.
-
-    Architecture:
-      1. Conv1d(input_dim → hidden, kernel=3, pad=1) + ReLU
-      2. Conv1d(hidden → hidden, kernel=3, pad=1) + ReLU
-      3. Global average pooling over time
-      4. Dropout + Linear(hidden, 1) + Sigmoid
-
-    With default hidden=64 and typical input_dim~20 the parameter count is
-    ~16 K — the lightest of the four architectures, well suited to the small
-    training corpus and short (≤16-step) windows.  The two stacked conv layers
-    give a receptive field of 5 timesteps, enough to capture the rapid
-    kinematic bursts that precede a push, without the risk of overfitting that
-    learnable positional embeddings bring to the Transformer.
-    """
-
-    def __init__(self, input_dim: int, hidden: int = 64, dropout: float = 0.25):
-        super().__init__()
-
-        self.conv = nn.Sequential(
-            nn.Conv1d(input_dim, hidden, kernel_size=3, padding=1),
-            nn.ReLU(),
-            nn.Conv1d(hidden, hidden, kernel_size=3, padding=1),
-            nn.ReLU(),
-        )
-
-        self.dropout = nn.Dropout(dropout)
-        self.fc = nn.Linear(hidden, 1)
-
-    def forward(self, x):
-        """
-        x: [batch, window_len, input_dim]
-        returns: [batch] hazard score in [0,1]
-        """
-        x = x.permute(0, 2, 1)           # [B, input_dim, T] — Conv1d expects (B, C, L)
-        x = self.conv(x)                  # [B, hidden, T]
-        x = x.mean(dim=2)                 # global average pool → [B, hidden]
-        x = self.dropout(x)
-        y = self.fc(x)                    # [B, 1]
-        y = torch.sigmoid(y)
-        return y.squeeze(1)               # [B]

@@ -1,6 +1,6 @@
 # Real-Time Physical Threat Detection System
 
-An automatic, real-time assault detection system for body-worn cameras. Built using pose estimation, optical flow analysis, and GRU-based temporal modeling.
+An automatic, real-time assault detection system for body-worn cameras. Built using pose estimation, optical flow analysis, and recurrent temporal modeling (GRU and LSTM).
 
 ## Overview
 
@@ -27,7 +27,7 @@ This system analyzes video streams to automatically detect assault behavior in r
 - **Binary Threat Detection**: Single THREAT level with EMA smoothing and persistence gating
 - **Pose-based Features**: 59-dimensional feature vector from body keypoints and optical flow
 - **Optical Flow Analysis**: Camera-compensated radial/tangential motion decomposition
-- **Temporal Modeling**: GRU neural network for sequence analysis
+- **Temporal Modeling**: Recurrent neural network (GRU or LSTM) for sequence analysis
 
 ### Technical Features
 - **Focal Loss**: Handles class imbalance and emphasizes hard examples
@@ -381,7 +381,7 @@ Detection Performance:
 live-assault-detection/
 ├── src/
 │   ├── config.py              # Configuration parameters + FEATURE_NAMES
-│   ├── model.py               # GRU model definition
+│   ├── model.py               # HazardGRU / HazardLSTM / HazardTransformer
 │   ├── dataset.py             # Dataset building and windowing
 │   ├── train.py               # Training script with Focal Loss
 │   ├── evaluate.py            # Holdout evaluation
@@ -392,6 +392,7 @@ live-assault-detection/
 │   ├── tracker.py             # Simple bounding box tracker
 │   ├── pose_utils.py          # Pose keypoint utilities
 │   ├── feature_importance.py  # Permutation importance evaluation
+│   ├── _plot.py               # Shared PR/ROC plotting helpers (used by train.py, evaluate.py)
 │   ├── utils.py               # Seed management utilities
 │   └── video_io.py            # Video reading utilities
 ├── data/
@@ -504,9 +505,9 @@ python -m src.infer 0 --picamera2 --pi
 
 ### Customizing Model
 
-1. Edit `HazardGRU` class in `src/model.py`
+1. Edit the relevant class in `src/model.py` (`HazardGRU`, `HazardLSTM`, or `HazardTransformer`)
 2. Update hyperparameters in `src/config.py`
-3. Retrain model
+3. Retrain with `python -m src.train --model {gru|lstm|transformer}` (default: `gru`)
 
 ## Troubleshooting
 

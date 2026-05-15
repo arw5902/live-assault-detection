@@ -70,27 +70,6 @@ class Config:
     ema_alpha: float = 0.7  # more responsive (less lag) with short window
     early_thresh: float = 0.2 # starting value was 0.35; overridden by meta.json best_threshold
     early_persist: int = 2  # PC default: 0.2 s at 10 FPS; Pi may use 1 (see for_pi)
-    hysteresis: float = 0.05
-
-    # Torso height fraction gate threshold (torso_height_px / frame_height).
-    # torso_height_px = Euclidean distance from shoulder midpoint to hip midpoint
-    # (compute_torso_height_frac() in features.py).
-    # Alerts are suppressed when the torso appears small in the frame (person
-    # is far away) → unlikely to be an immediate threat.
-    #   • Raise to suppress more distant-person FPs (more aggressive suppression).
-    #   • Lower to avoid suppressing close-person TPs (more conservative).
-    #
-    # Approximate torso_hf for a bodycam at chest height, 90° vFoV:
-    #   dist    torso_hf   note
-    #   1.0 m     0.30     arm's reach / very close
-    #   1.5 m     0.21     close
-    #   2.0 m     0.16     moderate
-    #   3.0 m     0.11     far
-    #   5.0 m     0.06     very far
-    #
-    # Rule of thumb: set threshold below the torso_hf at the closest FP distance
-    # and above the torso_hf at the farthest genuine TP distance.
-    far_height_fraction: float = 0.3
 
     # Audio fusion (PANNs-based threat detection)
     # Audio is optional — disabled automatically if panns_inference is not installed.
@@ -145,22 +124,9 @@ class Config:
         )
 
 
-# Feature names for the full 59-dimensional feature vector:
-#   56 base features (indices 0-55) from build_features()
-#   + 3 interaction features (indices 56-58) from add_interaction_features()
-# These correspond EXACTLY to the features extracted in src/features.py
-# Model input is 118-dimensional: [59 features, 59 validity_masks] concatenated
-# Changes vs previous version:
-#   - track_age removed (spurious predictor correlated with video length)
-#   - bg_flow_mag removed (dataset confounder; background already subtracted from flow vectors)
-#   - flow_mag_p90_torso/lower replaced with pos_radial_mean and radial_energy_frac
-#     (more direction-specific divergence signals, less correlated with raw speed)
-#   - lower ROI decomposition now uses its own center (not torso_c) so forward
-#     leg stride is correctly classified as radial approach, not tangential
-#   - interaction features added (motion × proximity) to contextualize threat: motion only matters when close
-#   - energy_ratio_upper_lower replaced by log_scale (pose-derived apparent size; invariant to arm raises)
-#   - approach_proximity replaced by approach_rate = max(dlog_scale_dt,0) × max(trans_signed_torso,0)
-#     (size-invariant Z-approach signal; zero for distant/retreating persons)
+# 56 base features (indices 0-55) from build_features()
+# + 3 interaction features (indices 56-58) from add_interaction_features()
+# Model input is 118-dim: [59 features, 59 validity_masks] concatenated.
 FEATURE_NAMES = [
     # Reliability/Metadata (9 dims) - indices 0-8
     "det_conf",
@@ -249,3 +215,8 @@ FEATURE_NAMES = [
     "expansion_proximity",
     "acceleration_proximity",
 ]
+
+# Invariant: FEATURE_NAMES must list every feature in the 59-dim vector
+# produced by build_features() + add_interaction_features() in src/features.py.
+# Drop or add a name here only when the feature pipeline changes accordingly.
+assert len(FEATURE_NAMES) == 59, f"FEATURE_NAMES has {len(FEATURE_NAMES)} entries, expected 59"

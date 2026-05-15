@@ -1,18 +1,15 @@
 import os
 import json
-import math
 import sys
 from datetime import datetime
 import numpy as np
 import torch
 from torch.utils.data import Dataset, DataLoader
 import torch.nn.functional as F
-from sklearn.metrics import (precision_recall_fscore_support, accuracy_score,
-                             precision_recall_curve, average_precision_score,
-                             roc_curve, auc)
+from sklearn.metrics import precision_recall_fscore_support, accuracy_score
 from .config import Config, FEATURE_NAMES
 from .dataset import build_dataset_per_video  # Video-level data for proper train/val split
-from .model import HazardGRU, HazardLSTM, HazardTransformer, HazardCNN
+from .model import HazardGRU, HazardLSTM, HazardTransformer
 from .pose_detector import PoseDetector
 from .utils import set_seed, print_seed_info
 from .feature_importance import compute_permutation_importance, print_importance_ranking, save_importance_results
@@ -53,9 +50,7 @@ def main(model_type: str = "gru"):
     logger = Logger(log_file)
     sys.stdout = logger
 
-    print(f"Training started at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"Log file: {log_file}")
-    print("=" * 80)
+    print(f"Training {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}  log → {log_file}")
 
     # Set random seed for reproducibility (CRITICAL: must be before dataset building)
     set_seed(seed=42, deterministic=True)
@@ -187,23 +182,10 @@ def main(model_type: str = "gru"):
     input_dim = ds_tr.X.shape[2]
     num_raw_features = input_dim // 2  # Features are concatenated with masks
 
-    # Verify FEATURE_NAMES matches actual features
-    print("\n" + "=" * 80)
-    print("FEATURE CONFIGURATION VERIFICATION")
-    print("=" * 80)
-    print(f"Model input dimension: {input_dim} (features + masks)")
-    print(f"Number of raw features: {num_raw_features}")
-    print(f"Number of FEATURE_NAMES: {len(FEATURE_NAMES)}")
-
+    print(f"\nFeatures: input_dim={input_dim} (features+masks)  raw={num_raw_features}  "
+          f"FEATURE_NAMES={len(FEATURE_NAMES)}")
     if num_raw_features != len(FEATURE_NAMES):
-        print("\n⚠️  WARNING: Feature count mismatch!")
-        print(f"   Expected: {num_raw_features} features")
-        print(f"   FEATURE_NAMES has: {len(FEATURE_NAMES)} names")
-        print("   Feature importance evaluation may be incorrect!")
-    else:
-        print("✓ Feature names match actual features")
-    print("=" * 80)
-    print()
+        print(f"  WARNING: feature count mismatch — importance evaluation will be wrong")
 
     # Save metadata for inference
     os.makedirs("outputs/checkpoints", exist_ok=True)
@@ -217,8 +199,6 @@ def main(model_type: str = "gru"):
         model = HazardLSTM(input_dim=input_dim, hidden=cfg.gru_hidden, dropout=cfg.dropout)
     elif model_type == "transformer":
         model = HazardTransformer(input_dim=input_dim, d_model=cfg.gru_hidden, dropout=cfg.dropout)
-    elif model_type == "cnn":
-        model = HazardCNN(input_dim=input_dim, hidden=cfg.gru_hidden, dropout=cfg.dropout)
     else:
         model = HazardGRU(input_dim=input_dim, hidden=cfg.gru_hidden, dropout=cfg.dropout)
 
@@ -367,17 +347,13 @@ def main(model_type: str = "gru"):
         if metrics_str:
             print(metrics_str)
 
-    print("\n" + "=" * 80)
-    print(f"Training completed at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"\nTraining done {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"Best validation loss: {best_val_loss:.4f}")
     print(f"Best F1: {global_best_f1:.3f}  Recall: {global_best_rec:.3f}  at threshold {global_best_thresh:.2f} (epoch {best_epoch})")
     print(f"Model saved to: {model_path} (selected by best F1)")
-    print("=" * 80)
 
     # ── Precision-Recall and ROC curves ─────────────────────────────────────
-    print("\n" + "=" * 80)
-    print("GENERATING PR AND ROC CURVES")
-    print("=" * 80)
+    print("\nGenerating PR and ROC curves...")
 
     # Load best model and collect predictions on validation set
     model.load_state_dict(torch.load(model_path))
@@ -391,282 +367,33 @@ def main(model_type: str = "gru"):
     y_true  = (np.array(all_labels) >= 0.5).astype(int)
     y_score = np.array(all_scores)
 
-    # Pre-compute per-threshold metrics for marker annotations
-    n_neg = max(1, int((y_true == 0).sum()))
-    marker_thresholds = [0.30, 0.35, 0.40, 0.45, 0.50, 0.55, 0.60, 0.65, 0.70]
-    marker_metrics = {}   # thresh → (prec, rec, f1, fpr)
-    for t in marker_thresholds:
-        y_pred = (y_score >= t).astype(int)
-        p, r, f, _ = precision_recall_fscore_support(
-            y_true, y_pred, average='binary', zero_division=0)
-        fp_count = int(((y_pred == 1) & (y_true == 0)).sum())
-        marker_metrics[t] = (p, r, f, fp_count / n_neg)
-
     try:
-        import matplotlib
-        matplotlib.use("Agg")           # non-interactive backend
-        import matplotlib.pyplot as plt
-
-        os.makedirs("outputs/plots", exist_ok=True)
-
-        # --- Precision-Recall curve with F1 iso-curves ---
-        prec_arr, rec_arr, pr_thresholds = precision_recall_curve(y_true, y_score)
-        ap = average_precision_score(y_true, y_score)
-
-        fig, ax = plt.subplots(figsize=(8, 6))
-
-        # F1 iso-curves
-        for f1_val in [0.5, 0.6, 0.7, 0.8, 0.9]:
-            r_iso = np.linspace(0.01, 1.0, 200)
-            p_iso = (f1_val * r_iso) / (2 * r_iso - f1_val)
-            valid = (p_iso > 0) & (p_iso <= 1)
-            ax.plot(r_iso[valid], p_iso[valid], '--', color='gray',
-                    alpha=0.35, linewidth=0.8)
-            # Label at the right end of each curve
-            label_idx = np.where(valid)[0]
-            if len(label_idx) > 0:
-                li = label_idx[-1]
-                ax.annotate(f"F1={f1_val}", (r_iso[li], p_iso[li]),
-                            fontsize=7, color='gray', alpha=0.7,
-                            ha='left', va='bottom')
-
-        # Main PR curve
-        ax.plot(rec_arr, prec_arr, linewidth=2, color='#1f77b4',
-                label=f"PR curve (AP={ap:.3f})")
-
-        # Threshold markers — dots on the curve, labels in a table box
-        table_lines = []  # collect text lines for the summary table
-        # Ensure selected threshold is included in the marker list
-        all_markers = list(marker_thresholds)
-        sel_in_markers = any(abs(t - global_best_thresh) < 0.005
-                             for t in marker_thresholds)
-        if not sel_in_markers:
-            all_markers.append(global_best_thresh)
-            all_markers.sort()
-            # Compute metrics for the extra threshold
-            y_sel = (y_score >= global_best_thresh).astype(int)
-            p_s, r_s, f_s, _ = precision_recall_fscore_support(
-                y_true, y_sel, average='binary', zero_division=0)
-            fp_s = int(((y_sel == 1) & (y_true == 0)).sum())
-            marker_metrics[global_best_thresh] = (p_s, r_s, f_s, fp_s / n_neg)
-
-        # Collect marker positions for label offset computation
-        marker_items = []  # (t, r_m, p_m, f_m, fpr_m, is_selected, color)
-        for t in all_markers:
-            p_m, r_m, f_m, fpr_m = marker_metrics[t]
-            if r_m == 0 and p_m == 0:
-                continue
-            is_selected = abs(t - global_best_thresh) < 0.005
-            color = 'red' if is_selected else '#1f77b4'
-            size = 10 if is_selected else 6
-            zorder = 10 if is_selected else 5
-            ax.plot(r_m, p_m, 'o', color=color, markersize=size,
-                    zorder=zorder)
-            marker_items.append((t, r_m, p_m, f_m, fpr_m, is_selected, color))
-
-        # Compute spread-out label offsets to avoid overlap
-        # Sort by (recall, precision) so adjacent labels get different offsets
-        angles = []
-        n_items = len(marker_items)
-        if n_items > 0:
-            # Check if points are clustered (span < 0.05 in both axes)
-            r_vals = [mi[1] for mi in marker_items]
-            p_vals = [mi[2] for mi in marker_items]
-            clustered = (max(r_vals) - min(r_vals) < 0.05
-                         and max(p_vals) - min(p_vals) < 0.05)
-            if clustered and n_items > 1:
-                # Fan labels outward in a radial pattern
-                start_angle = 200  # degrees, starting from lower-left
-                sweep = min(200, 30 * n_items)
-                for i in range(n_items):
-                    angle_deg = start_angle - (sweep * i / max(1, n_items - 1))
-                    angle_rad = math.radians(angle_deg)
-                    dist = 18
-                    dx = dist * math.cos(angle_rad)
-                    dy = dist * math.sin(angle_rad)
-                    angles.append((dx, dy))
-            else:
-                angles = [(6, 4)] * n_items
-
-        for idx, (t, r_m, p_m, f_m, fpr_m, is_selected, color) in enumerate(marker_items):
-            dx, dy = angles[idx]
-            ax.annotate(f"{t:.2f}", (r_m, p_m),
-                        textcoords="offset points", xytext=(dx, dy),
-                        fontsize=5.5, color=color,
-                        fontweight='bold' if is_selected else 'normal',
-                        arrowprops=dict(arrowstyle='-', color=color,
-                                        lw=0.5, alpha=0.4)
-                        if (abs(dx) > 10 or abs(dy) > 10) else None)
-
-            # Build table line
-            tag = "★" if is_selected else " "
-            table_lines.append(
-                f"{tag} t={t:.2f}  P={p_m:.2f}  R={r_m:.2f}  "
-                f"F1={f_m:.2f}  FPR={fpr_m:>6.2%}")
-
-        # Draw summary table as a text box in the lower-left
-        table_text = "\n".join(table_lines)
-        txt = ax.text(0.02, 0.02, table_text, transform=ax.transAxes,
-                      fontsize=7, fontfamily='monospace', verticalalignment='bottom',
-                      bbox=dict(boxstyle='round,pad=0.4', facecolor='white',
-                                edgecolor='#cccccc', alpha=0.9))
-
-        # Render once so we can measure the table's actual height, then
-        # position the legend snugly above it with minimal gap.
-        fig.canvas.draw()
-        bb = txt.get_window_extent(renderer=fig.canvas.get_renderer())
-        bb_axes = bb.transformed(ax.transAxes.inverted())
-        ax.legend(loc="lower left", fontsize=8,
-                  bbox_to_anchor=(0.01, bb_axes.y1 + 0.01))
-
-        ax.set_xlabel("Recall", fontsize=11)
-        ax.set_ylabel("Precision", fontsize=11)
-        ax.set_title(f"Precision-Recall Curve (Validation Set) - {model_type.upper()}", fontsize=12)
-        ax.set_xlim([0, 1.05])
-        ax.set_ylim([0, 1.05])
-        ax.grid(True, alpha=0.3)
-        pr_path = f"outputs/plots/pr_curve_{timestamp}.png"
-        fig.savefig(pr_path, dpi=150, bbox_inches="tight")
-        plt.close(fig)
-        print(f"  PR curve saved to  : {pr_path}  (AP={ap:.3f})")
-
-        # --- ROC curve with threshold markers and FP≤5% region ---
-        fpr_arr, tpr_arr, roc_thresholds = roc_curve(y_true, y_score)
-        roc_auc = auc(fpr_arr, tpr_arr)
-
-        fig, ax = plt.subplots(figsize=(8, 6))
-        ax.plot(fpr_arr, tpr_arr, linewidth=2, color='#1f77b4',
-                label=f"ROC curve (AUC={roc_auc:.3f})")
-        ax.plot([0, 1], [0, 1], "k--", alpha=0.3, label="Random")
-
-        # Threshold markers — dots on the curve, labels in a table box
-        roc_table_lines = []
-        roc_marker_items = []
-        for t in all_markers:
-            p_m, r_m, f_m, fpr_m = marker_metrics[t]
-            # Find closest point on the ROC curve for this threshold
-            best_dist = float('inf')
-            tpr_m = r_m       # fallback to recall from marker_metrics
-            fpr_plot = fpr_m  # fallback to computed FPR
-            for rt, rfp, rtp in zip(roc_thresholds, fpr_arr, tpr_arr):
-                dist = abs(rt - t)
-                if dist < best_dist:
-                    best_dist = dist
-                    fpr_plot, tpr_m = rfp, rtp
-            is_selected = abs(t - global_best_thresh) < 0.005
-            color = 'red' if is_selected else '#1f77b4'
-            size = 6 if is_selected else 3
-            zorder = 10 if is_selected else 5
-            ax.plot(fpr_plot, tpr_m, 'o', color=color, markersize=size,
-                    zorder=zorder)
-            roc_marker_items.append((t, fpr_plot, tpr_m, is_selected, color,
-                                     r_m, f_m, fpr_m))
-
-        # Compute spread-out label offsets for ROC markers
-        roc_angles = []
-        n_roc = len(roc_marker_items)
-        if n_roc > 0:
-            fpr_vals = [mi[1] for mi in roc_marker_items]
-            tpr_vals = [mi[2] for mi in roc_marker_items]
-            clustered = (max(fpr_vals) - min(fpr_vals) < 0.05
-                         and max(tpr_vals) - min(tpr_vals) < 0.05)
-            if clustered and n_roc > 1:
-                start_angle = -30  # degrees, starting from lower-right
-                sweep = min(200, 30 * n_roc)
-                for i in range(n_roc):
-                    angle_deg = start_angle - (sweep * i / max(1, n_roc - 1))
-                    angle_rad = math.radians(angle_deg)
-                    dist = 18
-                    dx = dist * math.cos(angle_rad)
-                    dy = dist * math.sin(angle_rad)
-                    roc_angles.append((dx, dy))
-            else:
-                roc_angles = [(10, 0)] * n_roc
-
-        for idx, (t, fpr_plot, tpr_m, is_selected, color, r_m, f_m, fpr_m) in enumerate(roc_marker_items):
-            dx, dy = roc_angles[idx]
-            ax.annotate(f"{t:.2f}", (fpr_plot, tpr_m),
-                        textcoords="offset points", xytext=(dx, dy),
-                        fontsize=5.5, color=color,
-                        fontweight='bold' if is_selected else 'normal',
-                        va='center',
-                        arrowprops=dict(arrowstyle='-', color=color,
-                                        lw=0.5, alpha=0.4)
-                        if (abs(dx) > 10 or abs(dy) > 10) else None)
-
-            tag = "★" if is_selected else " "
-            roc_table_lines.append(
-                f"{tag} t={t:.2f}  TPR={r_m:.2f}  FPR={fpr_m:>6.2%}  "
-                f"F1={f_m:.2f}")
-
-        # Draw summary table as a text box in the lower-right
-        roc_table_text = "\n".join(roc_table_lines)
-        txt2 = ax.text(0.98, 0.02, roc_table_text, transform=ax.transAxes,
-                        fontsize=7, fontfamily='monospace', verticalalignment='bottom',
-                        horizontalalignment='right',
-                        bbox=dict(boxstyle='round,pad=0.4', facecolor='white',
-                                  edgecolor='#cccccc', alpha=0.9))
-
-        # Render once so we can measure the table's actual height, then
-        # position the legend snugly above it with minimal gap.
-        fig.canvas.draw()
-        bb2 = txt2.get_window_extent(renderer=fig.canvas.get_renderer())
-        bb2_axes = bb2.transformed(ax.transAxes.inverted())
-        ax.legend(loc="lower right", fontsize=8,
-                  bbox_to_anchor=(0.99, bb2_axes.y1 + 0.01))
-
-        ax.set_xlabel("False Positive Rate", fontsize=11)
-        ax.set_ylabel("True Positive Rate (Recall)", fontsize=11)
-        ax.set_title(f"ROC Curve (Validation Set) - {model_type.upper()}", fontsize=12)
-        ax.set_xlim([0, 1.02])
-        ax.set_ylim([0, 1.05])
-        ax.grid(True, alpha=0.3)
-        roc_path = f"outputs/plots/roc_curve_{timestamp}.png"
-        fig.savefig(roc_path, dpi=150, bbox_inches="tight")
-        plt.close(fig)
-        print(f"  ROC curve saved to : {roc_path}  (AUC={roc_auc:.3f})")
-
-        # --- Print threshold comparison table ---
-        print(f"\n  Threshold comparison (val set, n_neg={n_neg}):")
-        print(f"  {'thresh':>6}  {'Prec':>5}  {'Rec':>5}  {'F1':>5}  "
-              f"{'FP%':>6}  {'note'}")
-        print(f"  {'-'*46}")
-        for t in sorted(marker_metrics.keys()):
-            p_m, r_m, f_m, fpr_m = marker_metrics[t]
-            if abs(t - global_best_thresh) < 0.005:
-                note = "★ selected (best F1)"
-            else:
-                note = ""
-            print(f"  {t:>6.2f}  {p_m:>5.3f}  {r_m:>5.3f}  {f_m:>5.3f}  "
-                  f"{fpr_m:>6.2%}  {note}")
-
+        from . import _plot
+        _plot.plot_pr_and_roc(
+            y_true, y_score,
+            selected_threshold=global_best_thresh,
+            model_type=model_type,
+            title_dataset="Validation Set",
+            pr_path=f"outputs/plots/pr_curve_{timestamp}.png",
+            roc_path=f"outputs/plots/roc_curve_{timestamp}.png",
+        )
     except ImportError:
         print("  matplotlib not installed — skipping curve plots")
         print("  Install with: pip install matplotlib")
 
-    # Compute feature importance using permutation importance
-    print("\n" + "=" * 80)
-    print("COMPUTING FEATURE IMPORTANCE")
-    print("=" * 80)
-
-    # Compute permutation importance
+    print("\nComputing feature importance...")
     importances, baseline_f1 = compute_permutation_importance(
         model=model,
         val_loader=dl_va,
         threshold=global_best_thresh,
         device=device,
-        n_repeats=5  # Repeat permutation 5 times for stability
+        n_repeats=5
     )
-
-    # Print ranking
     print_importance_ranking(importances, baseline_f1)
-
-    # Save results to JSON
     importance_output = f"outputs/logs/feature_importance_{timestamp}.json"
     save_importance_results(importances, baseline_f1, importance_output)
 
     print(f"\nLog saved to: {log_file}")
-    print("=" * 80)
 
     logger.close()
     sys.stdout = sys.__stdout__
@@ -674,7 +401,7 @@ def main(model_type: str = "gru"):
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="Train hazard detection model")
-    parser.add_argument("--model", choices=["gru", "lstm", "transformer", "cnn"], default="gru",
-                        help="Model architecture: gru (default), lstm, transformer, or cnn")
+    parser.add_argument("--model", choices=["gru", "lstm", "transformer"], default="gru",
+                        help="Model architecture: gru (default), lstm, or transformer")
     args = parser.parse_args()
     main(model_type=args.model)

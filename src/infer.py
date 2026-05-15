@@ -10,8 +10,8 @@ import numpy as np
 import torch
 import cv2
 from collections import deque
-from .config import Config, FEATURE_NAMES
-from .model import HazardGRU, HazardLSTM, HazardTransformer, HazardCNN
+from .config import Config
+from .model import HazardGRU, HazardLSTM, HazardTransformer
 from .pose_detector import PoseDetector
 from .tracker import SingleTargetTracker
 from .features import build_features, add_interaction_features, compute_torso_height_frac, TemporalDerivatives
@@ -259,29 +259,27 @@ def run(video_source,
         debug: bool         = False,
         simulate_live: bool = False,
         no_audio: bool      = False):
-    """
-    Core inference loop — video file or live camera.
+    """Core inference loop — video file or live camera.
 
-    Parameters
-    ----------
-    video_source  : int  → camera device index (cv2.VideoCapture)
-                    str  → video file path
-    display       : show an annotated OpenCV window
-                    (automatically enabled when video_source is int)
-    record        : write raw (un-annotated) frames to .mp4 and save a
-                    per-frame hazard JSON sidecar.  The saved video is fully
-                    compatible with evaluate.py — add a labels.json and run
-                    evaluate.py on it to measure accuracy offline.
-    record_dir    : directory for saved recordings
-    use_picamera2 : use picamera2 for Pi Camera Module (RPi5 + AI HAT+).
-                    When False and source is int, cv2.VideoCapture is used
-                    (suitable for USB webcam or libcamera V4L2 bridge).
-    show_skeleton : overlay COCO-17 keypoints and limb lines on the display
-                    window.  Has no effect on the raw recording.
-    simulate_live : pace a video-file source to match the file's native FPS
-                    and use actual wall-clock dt for feature derivatives —
-                    making a pre-recorded video behave identically to a live
-                    camera feed.  Ignored when video_source is a camera int.
+    Args:
+        video_source: int → camera device index (cv2.VideoCapture);
+            str → video file path.
+        display: show an annotated OpenCV window. Automatically enabled
+            when video_source is int.
+        record: write raw (un-annotated) frames to .mp4 and save a
+            per-frame hazard JSON sidecar. The saved video is fully
+            compatible with evaluate.py — add a labels.json and run
+            evaluate.py on it to measure accuracy offline.
+        record_dir: directory for saved recordings.
+        use_picamera2: use picamera2 for Pi Camera Module (RPi5 + AI HAT+).
+            When False and source is int, cv2.VideoCapture is used
+            (suitable for USB webcam or libcamera V4L2 bridge).
+        show_skeleton: overlay COCO-17 keypoints and limb lines on the
+            display window. Has no effect on the raw recording.
+        simulate_live: pace a video-file source to match the file's native
+            FPS and use actual wall-clock dt for feature derivatives —
+            making a pre-recorded video behave identically to a live camera
+            feed. Ignored when video_source is a camera int.
     """
     set_seed(seed=42, deterministic=True)
 
@@ -296,7 +294,7 @@ def run(video_source,
     print(f"Pose backend: {cfg.pose_backend}")
 
 
-    # ── load GRU model ────────────────────────────────────────────────────────
+    # ── load model ────────────────────────────────────────────────────────────
     with open("outputs/checkpoints/meta.json") as f:
         meta         = json.load(f)
         input_dim    = meta["input_dim"]
@@ -312,8 +310,6 @@ def run(video_source,
         model = HazardLSTM(input_dim=input_dim, hidden=cfg.gru_hidden, dropout=0.0)
     elif model_type == "transformer":
         model = HazardTransformer(input_dim=input_dim, d_model=cfg.gru_hidden, dropout=0.0)
-    elif model_type == "cnn":
-        model = HazardCNN(input_dim=input_dim, hidden=cfg.gru_hidden, dropout=0.0)
     else:
         model = HazardGRU(input_dim=input_dim, hidden=cfg.gru_hidden, dropout=0.0)
     model.load_state_dict(
@@ -322,7 +318,7 @@ def run(video_source,
     model.to(device)
 
     print(f"Threshold   : {early_thresh:.2f} (from training optimisation)")
-    print(f"GRU device  : {device}")
+    print(f"{model_type.upper()} device : {device}")
     print(f"Pose backend: {cfg.pose_backend}")
     print("Deterministic: ON (reproducible optical flow sampling)")
 
@@ -354,8 +350,6 @@ def run(video_source,
     if is_camera and use_picamera2:
         cam_w, cam_h, cam_fps = 640, 480, 30
         picam2   = _open_picamera2(cam_w, cam_h, cam_fps)
-        frame_w  = cam_w
-        frame_h  = cam_h
         fps_src  = float(cam_fps)
     else:
         cap = cv2.VideoCapture(video_source)
@@ -364,8 +358,6 @@ def run(video_source,
             detector.release()
             return
         fps_src = cap.get(cv2.CAP_PROP_FPS) or cfg.input_fps
-        frame_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        frame_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
     # ── optional recording ────────────────────────────────────────────────────
     writer      = None
@@ -465,7 +457,7 @@ def run(video_source,
 
                 # Resize to training resolution so pixel-magnitude features
                 # (log_scale, log_area, flow magnitudes) match the scale the
-                # GRU was trained on, and so that the recording is consistent
+                # model was trained on, and so that the recording is consistent
                 # with what evaluate.py will replay.
                 if frame.shape[1] != cfg.infer_w or frame.shape[0] != cfg.infer_h:
                     frame = cv2.resize(frame, (cfg.infer_w, cfg.infer_h))
@@ -555,14 +547,14 @@ def run(video_source,
             xm = np.concatenate([x, m], axis=0).astype(np.float32)
             buf.append(xm)
 
-            # ── GRU inference ─────────────────────────────────────────────────
+            # ── model inference ───────────────────────────────────────────────
             if len(buf) == cfg.window_len:
                 inp_t = torch.from_numpy(
                     np.stack(buf)[None, :, :]).to(device)
                 _t2 = time.perf_counter()
                 with torch.no_grad():
                     hazard_raw = float(model(inp_t).item())
-                _t_gru = time.perf_counter() - _t2
+                _t_model = time.perf_counter() - _t2
 
                 hazard_ema = ((1 - cfg.ema_alpha) * hazard_ema
                               + cfg.ema_alpha * hazard_raw)
@@ -607,8 +599,8 @@ def run(video_source,
                           f"ls={log_scale_now:.2f}(ok={int(log_scale_ok)})  "
                           f"pose={_t_pose*1000:.0f}ms  "
                           f"flow={_t_flow*1000:.0f}ms  "
-                          f"{model_type}={_t_gru*1000:.0f}ms  "
-                          f"total={(_t_pose+_t_flow+_t_gru)*1000:.0f}ms  "
+                          f"{model_type}={_t_model*1000:.0f}ms  "
+                          f"total={(_t_pose+_t_flow+_t_model)*1000:.0f}ms  "
                           f"dbg={dbg}")
                 elif verbose:
                     # Compact one-line summary per frame — less noisy than --debug.
@@ -683,35 +675,31 @@ def run_on_file(video_path, cfg, model, device, detector, early_thresh,
     this function replicates real-world deployment faithfully, so the timing
     differences compared to evaluate.py reflect genuine pipeline latency.
 
-    Parameters
-    ----------
-    video_path      : str         — path to .mp4 video file
-    cfg             : Config      — platform config (for_pc() or for_pi())
-    model           : HazardGRU/HazardLSTM — loaded model in eval mode
-    device          : torch.device
-    detector        : PoseDetector
-    early_thresh    : float       — THREAT threshold (from meta.json best_threshold)
-    verbose         : bool        — collect per-GRU-frame timeline when True
-    debug           : bool        — print per-frame gate diagnostics (mirrors
-                                    run() console output; captured by TeeLogger)
-    ignore_start_sec: float       — ignore any THREAT detections in the first
-                                    N seconds of the video (default 0 = no skip)
-    ignore_start_frame: int       — ignore THREAT detections before this
-                                    raw-video frame index (30 fps).  When > 0,
-                                    takes precedence over ignore_start_sec.
-                                    Used to align the skip region with the
-                                    labelled 'first_stand' frame from
-                                    labels.json.
+    Args:
+        video_path: path to .mp4 video file.
+        cfg: platform config (for_pc() or for_pi()).
+        model: loaded HazardGRU/HazardLSTM in eval mode.
+        device: torch.device.
+        detector: PoseDetector instance.
+        early_thresh: THREAT threshold (from meta.json best_threshold).
+        verbose: collect per-frame timeline when True.
+        debug: print per-frame gate diagnostics (mirrors run() console
+            output; captured by TeeLogger).
+        ignore_start_sec: ignore any THREAT detections in the first N
+            seconds of the video (default 0 = no skip).
+        ignore_start_frame: ignore THREAT detections before this raw-video
+            frame index (30 fps). When > 0, takes precedence over
+            ignore_start_sec. Used to align the skip region with the
+            labelled 'first_stand' frame from labels.json.
 
-    Returns
-    -------
-    dict with keys:
-        first_precontact_frame : int   — first frame where level == THREAT (−1 if never)
-        all_threat_frames      : list  — every frame where level == THREAT
-        max_hazard_raw         : float — max raw GRU output seen
-        max_hazard_ema         : float — max hazard_ema seen
-        timeline               : list  — per-frame dicts (empty when verbose=False)
-    None if the video file cannot be opened.
+    Returns:
+        Dict with keys:
+            first_precontact_frame: first frame where level == THREAT (−1 if never).
+            all_threat_frames: every frame where level == THREAT.
+            max_hazard_raw: max raw model output seen.
+            max_hazard_ema: max hazard_ema seen.
+            timeline: per-frame dicts (empty when verbose=False).
+        None if the video file cannot be opened.
     """
     # Seed RNG so each video gets identical point sampling regardless of
     # processing order within evaluate_dir().
@@ -827,14 +815,14 @@ def run_on_file(video_path, cfg, model, device, detector, early_thresh,
         xm = np.concatenate([x, m], axis=0).astype(np.float32)
         buf.append(xm)
 
-        # ── GRU inference (only when window is full) ──────────────────────────
+        # ── model inference (only when window is full) ────────────────────────
         if len(buf) == cfg.window_len:
             inp_t = torch.from_numpy(
                 np.stack(buf)[None, :, :]).to(device)
             _t2 = time.perf_counter()
             with torch.no_grad():
                 hazard_raw = float(model(inp_t).item())
-            _t_gru = time.perf_counter() - _t2
+            _t_model = time.perf_counter() - _t2
 
             max_hazard_raw = max(max_hazard_raw, hazard_raw)
 
@@ -876,8 +864,8 @@ def run_on_file(video_path, cfg, model, device, detector, early_thresh,
                       f"persist={persist}  "
                       f"pose={_t_pose*1000:.0f}ms  "
                       f"flow={_t_flow*1000:.0f}ms  "
-                      f"{model_type}={_t_gru*1000:.0f}ms  "
-                      f"total={(_t_pose+_t_flow+_t_gru)*1000:.0f}ms  "
+                      f"{model_type}={_t_model*1000:.0f}ms  "
+                      f"total={(_t_pose+_t_flow+_t_model)*1000:.0f}ms  "
                       f"dbg={dbg}")
 
             # Record detection frames (skip frames before first_stand).
@@ -923,7 +911,7 @@ def _run_window_analysis(eval_dir, cfg, model, device, detector,
     Extracts windows from eval-dir videos using the same segment logic as
     the live-simulation pipeline (excluding frames before 'first_stand',
     the silence zone, and frames after push_end_frame), then evaluates raw
-    GRU scores.
+    model scores.
 
     When verbose=True, prints per-window FP and FN locations (video name,
     segment, frame range) to help localize where mistakes occur.
@@ -957,7 +945,7 @@ def _run_window_analysis(eval_dir, cfg, model, device, detector,
         print("  [first_stand_after_sit, last_backward_frame]           → silence zone")
         print("  (last_backward_frame, push_start_frame] (seg2-approach)→ label-noisy")
         print("  (push_end_frame, end]                                  → post-attack")
-    print("Re-extracting windows from videos for raw GRU analysis...")
+    print(f"Re-extracting windows from videos for raw {model_type.upper()} analysis...")
 
     set_seed(seed=42, deterministic=True)
 
@@ -965,7 +953,7 @@ def _run_window_analysis(eval_dir, cfg, model, device, detector,
     # Parallel metadata list aligned with all_Xw / all_Mw / all_yw after concat.
     # Each entry: (video_name, segment_label, end_raw_frame, start_raw_frame)
     # end_raw_frame = raw-video frame index (30 fps) where the window ENDS
-    #                 — this is the frame at which the GRU makes its decision.
+    #                 — this is the frame at which the model makes its decision.
     # start_raw_frame = raw-video frame index where the window begins.
     all_meta = []
 
@@ -1109,7 +1097,7 @@ def _run_window_analysis(eval_dir, cfg, model, device, detector,
     n_safe_w = int((yw_all < 0.5).sum())
     print(f"  Total windows: {len(yw_all)} (attack={n_attack_w}, safe={n_safe_w})")
 
-    # ── Collect raw GRU predictions (no EMA) ────────────────────────────────
+    # ── Collect raw model predictions (no EMA) ──────────────────────────────
     model.eval()
     all_scores = []
     batch_size = 64
@@ -1633,13 +1621,12 @@ def evaluate_dir(eval_dir, verbose=False, debug=False, enable_pi=False,
         between push_start_frame and contact_frame          → Early Detection
         after contact_frame                                 → Late Detection
 
-    Parameters
-    ----------
-    eval_dir  : str  — directory containing attack/, labels.json, optionally safe/
-    verbose   : bool — dump compact frame-by-frame timeline table per video
-    debug     : bool — print full per-frame gate diagnostics (mirrors run()
-                       console output); captured by TeeLogger → log file
-    enable_pi : bool — use Config.for_pi() instead of Config.for_pc()
+    Args:
+        eval_dir: directory containing attack/, labels.json, optionally safe/.
+        verbose: dump compact frame-by-frame timeline table per video.
+        debug: print full per-frame gate diagnostics (mirrors run() console
+            output); captured by TeeLogger → log file.
+        enable_pi: use Config.for_pi() instead of Config.for_pc().
     """
     # ── logging ───────────────────────────────────────────────────────────────
     os.makedirs("outputs/logs", exist_ok=True)
@@ -1667,8 +1654,6 @@ def evaluate_dir(eval_dir, verbose=False, debug=False, enable_pi=False,
         model = HazardLSTM(input_dim=input_dim, hidden=cfg.gru_hidden, dropout=0.0)
     elif model_type == "transformer":
         model = HazardTransformer(input_dim=input_dim, d_model=cfg.gru_hidden, dropout=0.0)
-    elif model_type == "cnn":
-        model = HazardCNN(input_dim=input_dim, hidden=cfg.gru_hidden, dropout=0.0)
     else:
         model = HazardGRU(input_dim=input_dim, hidden=cfg.gru_hidden, dropout=0.0)
     model.load_state_dict(
@@ -1695,7 +1680,7 @@ def evaluate_dir(eval_dir, verbose=False, debug=False, enable_pi=False,
     print(f"Directory  : {eval_dir}")
     print(f"Threshold  : {early_thresh:.2f}  (from training optimisation)")
     print(f"Config     : {'Pi' if enable_pi else 'PC'}")
-    print(f"GRU device : {device}")
+    print(f"{model_type.upper()} device : {device}")
     print(f"Live sim   : {'ON  (wall-clock dt, native-FPS pacing per video)' if simulate_live else 'OFF (fixed dt=step_dt, batch speed)'}")
     print(f"Audio      : {'ON' if audio_det is not None else 'OFF'}")
     print(f"Ignore     : frames before 'first_stand' per video (fallback: 12.0s)")
@@ -1718,9 +1703,7 @@ def evaluate_dir(eval_dir, verbose=False, debug=False, enable_pi=False,
         detector.release()
         return
 
-    # ══════════════════════════════════════════════════════════════════════════
-    # LIVE DETECTION MODE (default)
-    # ══════════════════════════════════════════════════════════════════════════
+    # ── Live detection mode (default) ──────────────────────────────────────
 
     # ── attack videos ─────────────────────────────────────────────────────────
     print("\n--- Processing Attack Videos ---")
@@ -2233,7 +2216,7 @@ if __name__ == "__main__":
         help="With --eval-dir: run window-level analysis (F1, PR curve, "
              "ROC curve, feature importance) instead of Live Detection.  "
              "This mode re-extracts windows from the dataset and evaluates "
-             "raw GRU scores (no EMA), producing metrics and plots for the paper.")
+             "raw model scores (no EMA), producing metrics and plots for the paper.")
 
     parser.add_argument(
         "--split-silence", action="store_true",

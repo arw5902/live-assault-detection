@@ -49,15 +49,13 @@ PANNS_SAMPLE_RATE = 32000  # PANNs expects 32 kHz mono
 class AudioThreatDetector:
     """Pre-trained audio classifier for threat-related sounds.
 
-    Lazy-loads the PANNs model on first use.  If panns_inference is not
+    Lazy-loads the PANNs model on first use. If panns_inference is not
     installed, all scoring methods return 0.0 (audio disabled).
 
-    Parameters
-    ----------
-    device : str
-        "cpu" or "cuda".  Pi5 always uses "cpu".
-    checkpoint_path : str or None
-        Path to a PANNs checkpoint (.pth).  None = auto-download default Cnn14.
+    Args:
+        device: "cpu" or "cuda". Pi5 always uses "cpu".
+        checkpoint_path: path to a PANNs checkpoint (.pth), or None to
+            auto-download the default Cnn14.
     """
 
     def __init__(self, device: str = "cpu", checkpoint_path: Optional[str] = None):
@@ -129,16 +127,13 @@ class AudioThreatDetector:
     def score_window(self, audio_window: np.ndarray) -> Tuple[float, str]:
         """Classify a single audio window and return a threat score in [0, 1].
 
-        Parameters
-        ----------
-        audio_window : np.ndarray
-            1-D float32 array at 32 kHz mono (typically 1 second = 32000 samples).
+        Args:
+            audio_window: 1-D float32 array at 32 kHz mono
+                (typically 1 second = 32000 samples).
 
-        Returns
-        -------
-        (float, str)
-            Threat score (weighted max of threat-class probabilities) and the
-            name of the dominant threat class (empty string when score is 0).
+        Returns:
+            (score, top_class) — weighted max of threat-class probabilities
+            and the name of the dominant threat class (empty string when 0).
         """
         if not self.available:
             return 0.0, ""
@@ -167,17 +162,15 @@ class AudioThreatDetector:
         Extracts the full audio track, then slides a window_sec-long window
         centred on each strided frame's timestamp and classifies it.
 
-        Parameters
-        ----------
-        video_path   : str   — path to the video file
-        fps          : float — video frame rate (used to align audio windows)
-        frame_stride : int   — only score every frame_stride-th frame
-        window_sec   : float — audio window duration in seconds (default 1.0)
+        Args:
+            video_path: path to the video file.
+            fps: video frame rate (used to align audio windows).
+            frame_stride: only score every frame_stride-th frame.
+            window_sec: audio window duration in seconds.
 
-        Returns
-        -------
-        dict mapping frame_idx (int) → (audio_score, class_name).
-        Empty dict if audio extraction fails or PANNs is unavailable.
+        Returns:
+            Dict mapping frame_idx to (audio_score, class_name). Empty dict
+            if audio extraction fails or PANNs is unavailable.
         """
         if not self.available:
             return {}
@@ -216,7 +209,7 @@ class AudioThreatDetector:
 def fuse_scores(visual_score: float, audio_score: float,
                 audio_thresh: float = 0.3,
                 audio_boost_alpha: float = 0.25) -> float:
-    """Option B fusion: audio boosts a borderline visual score.
+    """Fuse visual + audio: audio boosts a borderline visual score.
 
     Audio alone cannot trigger an alert — it only raises the visual score
     when both modalities agree that something threatening is happening.
@@ -224,16 +217,14 @@ def fuse_scores(visual_score: float, audio_score: float,
     while letting audio rescue missed visual detections (out-of-frame attacks,
     close-range scuffles where keypoints fail).
 
-    Parameters
-    ----------
-    visual_score      : float — hazard_ema from the visual GRU (0–1)
-    audio_score       : float — threat score from PANNs (0–1)
-    audio_thresh      : float — minimum audio_score to activate boost
-    audio_boost_alpha : float — strength of the boost (0 = no effect, 1 = full)
+    Args:
+        visual_score: hazard_ema from the visual model (0–1).
+        audio_score: threat score from PANNs (0–1).
+        audio_thresh: minimum audio_score to activate boost.
+        audio_boost_alpha: strength of the boost (0 = no effect, 1 = full).
 
-    Returns
-    -------
-    float — fused score in [0, 1], always >= visual_score.
+    Returns:
+        Fused score in [0, 1], always >= visual_score.
     """
     if audio_score > audio_thresh:
         return visual_score + (1.0 - visual_score) * audio_score * audio_boost_alpha
