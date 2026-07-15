@@ -71,13 +71,6 @@ class Config:
     early_thresh: float = 0.2 # starting value was 0.35; overridden by meta.json best_threshold
     early_persist: int = 2  # PC default: 0.2 s at 10 FPS; Pi may use 1 (see for_pi)
 
-    # Audio fusion (PANNs-based threat detection)
-    # Audio is optional — disabled automatically if panns_inference is not installed.
-    audio_enabled: bool = True          # set False to skip audio entirely
-    audio_window_sec: float = 1.0       # PANNs classification window length (seconds)
-    audio_thresh: float = 0.3           # min audio_score to activate boost
-    audio_boost_alpha: float = 0.25     # boost strength (0 = off, 1 = full)
-
     # Inference and recording resolution — must match the training data resolution.
     # PiCamera2 is already opened at this size natively.  Any other source
     # (USB webcam, arbitrary video file) is resized to (infer_w × infer_h) before

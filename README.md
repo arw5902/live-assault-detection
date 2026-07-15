@@ -1,6 +1,6 @@
 # Real-Time Physical Threat Detection System
 
-An automatic, real-time assault detection system for body-worn cameras. Built using pose estimation, optical flow analysis, and recurrent temporal modeling (GRU and LSTM).
+An automatic, real-time assault detection system for body-worn cameras. Built using pose estimation, optical flow analysis, and temporal modeling (GRU, LSTM, and Transformer).
 
 ## Overview
 
@@ -27,7 +27,7 @@ This system analyzes video streams to automatically detect assault behavior in r
 - **Binary Threat Detection**: Single THREAT level with EMA smoothing and persistence gating
 - **Pose-based Features**: 59-dimensional feature vector from body keypoints and optical flow
 - **Optical Flow Analysis**: Camera-compensated radial/tangential motion decomposition
-- **Temporal Modeling**: Recurrent neural network (GRU or LSTM) for sequence analysis
+- **Temporal Modeling**: GRU, LSTM, or Transformer network for sequence analysis
 
 ### Technical Features
 - **Focal Loss**: Handles class imbalance and emphasizes hard examples
@@ -42,7 +42,7 @@ This system analyzes video streams to automatically detect assault behavior in r
 ### Hardware
 - **Minimum**: CPU with 4+ cores, 8GB RAM
 - **Recommended**: NVIDIA GPU with 4GB+ VRAM, 16GB RAM
-- **Edge Deployment**: Raspberry Pi 5 + Hailo-8 AI HAT+ (M.2 NPU, ~10-12 Hz inference)
+- **Edge Deployment**: Raspberry Pi 5 + Hailo-8 AI HAT+ (M.2 NPU, ~10 Hz end-to-end inference)
 
 ### Software
 - Python 3.8+
@@ -208,7 +208,7 @@ early_thresh: float = 0.2        # Initial THREAT threshold (tuned during traini
 1. **Data Loading**: Videos processed at 10 FPS with pose detection
 2. **Feature Extraction**: 59-dimensional features per frame (+ 59 validity masks = 118-dim input)
 3. **Windowing**: 5-frame sliding windows (safe: stride=2, attack: stride=1)
-4. **Video-level Split**: 85% train, 15% validation (no data leakage)
+4. **Video-level Split**: 80% train, 20% validation (no data leakage)
 5. **Training**: Focal Loss optimization for 40 epochs
 6. **Threshold Tuning**: Sweep [0.30-0.70] to maximize F1 score
 7. **Model Saving**: Best model saved based on F1 score with timestamp filename
@@ -461,7 +461,7 @@ Evaluated at threshold **0.65** (auto-tuned during training).
 | Window Length | 5 frames (0.5s) |
 | GRU Hidden Units | 64 |
 | Total Parameters | ~24K |
-| Inference Speed | ~10-12 Hz (Pi 5 + Hailo-8) |
+| Inference Speed | ~10 Hz end-to-end (Pi 5 + Hailo-8) |
 | Model Size | <1 MB |
 
 ## Documentation
@@ -534,9 +534,7 @@ python -m src.infer 0 --picamera2 --pi
 
 ## Future Improvements
 
-- [ ] Attention mechanism for improved temporal modeling
 - [ ] Multi-person tracking and detection
-- [ ] Audio features integration
 - [ ] Transfer learning from larger datasets
 - [x] Edge deployment on Raspberry Pi 5 with Hailo-8 NPU
 - [ ] IMU-based ego-motion compensation

@@ -1,0 +1,13 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# OS
+.DS_Store
+
+# Outputs (regenerated; keep the directory structure via .gitkeep if needed)
+outputs/logs/
+outputs/recordings/

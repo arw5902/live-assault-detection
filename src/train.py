@@ -79,7 +79,7 @@ def main(model_type: str = "gru"):
     np.random.shuffle(attack_videos)
 
     # Helper function for window-based split
-    def split_by_windows(video_list, val_fraction=0.15):
+    def split_by_windows(video_list, val_fraction=0.20):
         """Split videos to achieve target window fraction in validation set."""
         if len(video_list) == 0:
             return [], []
@@ -112,8 +112,8 @@ def main(model_type: str = "gru"):
         return train_set, val_set
 
     # Split each class independently to maintain class balance
-    safe_train, safe_val = split_by_windows(safe_videos, val_fraction=0.15)
-    attack_train, attack_val = split_by_windows(attack_videos, val_fraction=0.15)
+    safe_train, safe_val = split_by_windows(safe_videos, val_fraction=0.20)
+    attack_train, attack_val = split_by_windows(attack_videos, val_fraction=0.20)
 
     # Combine train and val sets
     train_videos = safe_train + attack_train
@@ -165,8 +165,8 @@ def main(model_type: str = "gru"):
 
     # Verify split quality
     val_fraction = total_va / total_all
-    if val_fraction < 0.10 or val_fraction > 0.20:
-        print(f"\n  WARNING: Val fraction {val_fraction:.1%} is outside target range [10%-20%]")
+    if val_fraction < 0.15 or val_fraction > 0.25:
+        print(f"\n  WARNING: Val fraction {val_fraction:.1%} is outside target range [15%-25%]")
 
     # Compute class imbalance ratio for reference
     attack_weight = n_safe_tr / max(1, n_attack_tr)

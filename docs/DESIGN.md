@@ -40,7 +40,7 @@ The system combines:
 1. **Pose Estimation**: YOLOv8-Pose for body keypoint detection
 2. **Optical Flow**: Lucas-Kanade for motion analysis
 3. **Feature Engineering**: 59-dimensional feature vector (+ 59 validity masks = 118-dim model input)
-4. **Temporal Modeling**: Recurrent neural network for sequence classification — GRU (deployment default) and LSTM (best window-level accuracy) are both supported
+4. **Temporal Modeling**: Sequence classification over the temporal window — GRU (deployment default), LSTM (best window-level accuracy), and Transformer are all supported
 5. **Single THREAT Alert**: Binary threshold-based detection
 
 ### 1.3 System Requirements
@@ -175,7 +175,7 @@ Sliding Windows (5 frames, stride varies)
     ↓
 Dataset: [N, 5, 118] windows  (59 features + 59 masks concatenated)
     ↓
-Video-Level Train/Val Split (85/15)
+Video-Level Train/Val Split (80/20)
     ↓
 DataLoader (batch_size=64)
     ↓
@@ -1097,7 +1097,7 @@ video_data = [(video1_windows, video1_labels),
               (video2_windows, video2_labels), ...]
 
 # Split videos (not windows)
-train_videos, val_videos = split_videos(video_data, val_fraction=0.15)
+train_videos, val_videos = split_videos(video_data, val_fraction=0.20)
 
 # Concatenate windows within each set
 train_windows = concatenate([v for v in train_videos])
@@ -1116,12 +1116,12 @@ val_windows = concatenate([v for v in val_videos])
 Video A: 500 frames → 496 windows (stride=1)
 Video B: 50 frames → 46 windows (stride=1)
 
-Random 15% video split might give 5% or 25% window split!
+Random 20% video split might give 10% or 30% window split!
 ```
 
 **Solution**: Stratified split by window count
 ```python
-def split_by_windows(video_list, val_fraction=0.15):
+def split_by_windows(video_list, val_fraction=0.20):
     """Greedily assign videos to val set to achieve target window fraction."""
     total_windows = sum(video.num_windows for video in video_list)
     target_val_windows = int(val_fraction * total_windows)
@@ -1646,7 +1646,7 @@ def windowize(X, M, y, window_len=5, stride=1):
 ### 8.4 Video-Level Split Implementation
 
 ```python
-def split_by_videos(video_data, val_fraction=0.15):
+def split_by_videos(video_data, val_fraction=0.20):
     """
     Split videos (not windows) for train/val.
     Stratified by class and window count.

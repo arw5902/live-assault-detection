@@ -17,7 +17,6 @@ from .tracker import SingleTargetTracker
 from .features import build_features, add_interaction_features, compute_torso_height_frac, TemporalDerivatives
 from .dataset import extract_sequences, windowize
 from .feature_importance import compute_permutation_importance, print_importance_ranking, save_importance_results
-from .audio import AudioThreatDetector, fuse_scores
 from .utils import set_seed
 
 # BGR colours for each hazard level (binary: THREAT / NONE)
@@ -257,8 +256,7 @@ def run(video_source,
         enable_pi: bool     = True,
         verbose: bool       = False,
         debug: bool         = False,
-        simulate_live: bool = False,
-        no_audio: bool      = False):
+        simulate_live: bool = False):
     """Core inference loop — video file or live camera.
 
     Args:
@@ -286,8 +284,6 @@ def run(video_source,
     # Note Config.for_pi() will disable skeleton being displayed on screen, 
     # probably due to hailo backend instead of ultralytics
     cfg      = Config.for_pi() if enable_pi else Config.for_pc()
-    if no_audio:
-        cfg.audio_enabled = False
     detector = PoseDetector(cfg)
     tracker  = SingleTargetTracker()
 
@@ -415,17 +411,6 @@ def run(video_source,
     else:
         frame_period = None
         next_frame_t = None
-
-    # ── audio threat detector (file sources only for now) ─────────────────────
-    audio_scores = {}   # frame_idx → (audio_score, class_name)
-    if cfg.audio_enabled and not is_camera and isinstance(video_source, str):
-        _audio_det = AudioThreatDetector(device=str(device))
-        if _audio_det.available:
-            print(f"Pre-computing audio scores for {video_source} ...")
-            audio_scores = _audio_det.score_video(
-                video_source, fps_src, cfg.frame_stride, cfg.audio_window_sec)
-            print(f"Audio scores computed for {len(audio_scores)} frames")
-        del _audio_det  # free model memory
 
     # ── main loop ─────────────────────────────────────────────────────────────
     frame_idx = 0
@@ -559,20 +544,13 @@ def run(video_source,
                 hazard_ema = ((1 - cfg.ema_alpha) * hazard_ema
                               + cfg.ema_alpha * hazard_raw)
 
-                # Audio fusion (Option B): boost visual score when audio
-                # detects threat-related sounds.  No effect when audio_scores
-                # is empty (camera source, no audio track, PANNs not installed).
-                audio_score, audio_cls = audio_scores.get(frame_idx, (0.0, ""))
-                hazard_fused = fuse_scores(hazard_ema, audio_score,
-                                           cfg.audio_thresh, cfg.audio_boost_alpha)
-
-                if hazard_fused > early_thresh:
+                if hazard_ema > early_thresh:
                     persist += 1
                 else:
                     persist = max(0, persist - 1)
 
                 level = "NONE"
-                if hazard_fused > early_thresh and persist >= cfg.early_persist:
+                if hazard_ema > early_thresh and persist >= cfg.early_persist:
                     level = "THREAT"
 
                 # Distance gate removed — all alerts pass regardless of subject distance.
@@ -590,10 +568,8 @@ def run(video_source,
                 #   thf → torso_height_frac = ||hip_mid−shoulder_mid|| / frame_h
                 #   ls  → log_scale (ok=0 → keypoints invalid, using bbox fallback)
                 if debug:
-                    _aud_str = (f"  aud={audio_score:.3f}→fused={hazard_fused:.3f}"
-                                f"[{audio_cls}]") if audio_score > 0 else ""
                     print(f"t={t_s:.2f}s  frame={frame_idx}  "
-                          f"raw={hazard_raw:.3f}  ema={hazard_ema:.3f}{_aud_str}  "
+                          f"raw={hazard_raw:.3f}  ema={hazard_ema:.3f}  "
                           f"level={level}  "
                           f"thf={torso_height_frac:.3f}  "
                           f"ls={log_scale_now:.2f}(ok={int(log_scale_ok)})  "
@@ -604,10 +580,8 @@ def run(video_source,
                           f"dbg={dbg}")
                 elif verbose:
                     # Compact one-line summary per frame — less noisy than --debug.
-                    _aud_str = (f"  aud={audio_score:.3f}[{audio_cls}]"
-                                if audio_score > 0 else "")
                     print(f"t={t_s:.2f}s  frame={frame_idx}  "
-                          f"level={level}  ema={hazard_ema:.3f}{_aud_str}  "
+                          f"level={level}  ema={hazard_ema:.3f}  "
                           f"thf={torso_height_frac:.3f}  persist={persist}")
 
                 if record_path is not None:
@@ -662,7 +636,7 @@ def run(video_source,
 
 def run_on_file(video_path, cfg, model, device, detector, early_thresh,
                 verbose=False, debug=False, simulate_live=False,
-                audio_scores=None, ignore_start_sec=0.0,
+                ignore_start_sec=0.0,
                 ignore_start_frame=0, model_type="gru"):
     """
     Run the full live detection state machine on a pre-recorded video file.
@@ -744,9 +718,6 @@ def run_on_file(video_path, cfg, model, device, detector, early_thresh,
         frame_period = None
         next_frame_t = None
         t_last_infer = None   # unused in non-live path
-
-    if audio_scores is None:
-        audio_scores = {}
 
     first_precontact_frame = -1
     all_threat_frames      = []   # every frame where level == "THREAT"
@@ -830,18 +801,13 @@ def run_on_file(video_path, cfg, model, device, detector, early_thresh,
                           + cfg.ema_alpha * hazard_raw)
             max_hazard_ema = max(max_hazard_ema, hazard_ema)
 
-            # Audio fusion (Option B)
-            audio_score, audio_cls = audio_scores.get(frame_idx, (0.0, ""))
-            hazard_fused = fuse_scores(hazard_ema, audio_score,
-                                       cfg.audio_thresh, cfg.audio_boost_alpha)
-
-            if hazard_fused > early_thresh:
+            if hazard_ema > early_thresh:
                 persist += 1
             else:
                 persist = max(0, persist - 1)
 
             level = "NONE"
-            if hazard_fused > early_thresh and persist >= cfg.early_persist:
+            if hazard_ema > early_thresh and persist >= cfg.early_persist:
                 level = "THREAT"
 
             # Distance gate removed — all alerts pass regardless of subject distance.
@@ -854,10 +820,8 @@ def run_on_file(video_path, cfg, model, device, detector, early_thresh,
             #   thf → torso_height_frac = ||hip_mid−shoulder_mid|| / frame_h
             #   ls  → log_scale (ok=0 → keypoints invalid)
             if debug:
-                _aud_str = (f"  aud={audio_score:.3f}→fused={hazard_fused:.3f}"
-                            f"[{audio_cls}]") if audio_score > 0 else ""
                 print(f"  frame={frame_idx:5d}  "
-                      f"raw={hazard_raw:.3f}  ema={hazard_ema:.3f}{_aud_str}  "
+                      f"raw={hazard_raw:.3f}  ema={hazard_ema:.3f}  "
                       f"level={level:<8s}  "
                       f"thf={torso_height_frac:.3f}  "
                       f"ls={log_scale_now:.2f}(ok={int(log_scale_ok)})  "
@@ -880,9 +844,6 @@ def run_on_file(video_path, cfg, model, device, detector, early_thresh,
                     "level":            level,
                     "hazard_raw":       round(hazard_raw, 4),
                     "hazard_ema":       round(hazard_ema, 4),
-                    "hazard_fused":     round(hazard_fused, 4),
-                    "audio_score":      round(audio_score, 4),
-                    "audio_cls":        audio_cls,
                     "torso_height_frac": round(torso_height_frac, 4),
                     "log_scale":         round(log_scale_now, 3),
                     "persist":          persist,
@@ -1579,7 +1540,7 @@ def _run_window_analysis(eval_dir, cfg, model, device, detector,
 
 
 def evaluate_dir(eval_dir, verbose=False, debug=False, enable_pi=False,
-                 simulate_live=False, no_audio=False, analyze=False,
+                 simulate_live=False, analyze=False,
                  split_silence=False):
     """
     Evaluate the FULL live detection pipeline on a pre-recorded dataset.
@@ -1639,8 +1600,6 @@ def evaluate_dir(eval_dir, verbose=False, debug=False, enable_pi=False,
     set_seed(seed=42, deterministic=True)
 
     cfg = Config.for_pi() if enable_pi else Config.for_pc()
-    if no_audio:
-        cfg.audio_enabled = False
 
     with open("outputs/checkpoints/meta.json") as f:
         meta         = json.load(f)
@@ -1663,13 +1622,6 @@ def evaluate_dir(eval_dir, verbose=False, debug=False, enable_pi=False,
 
     detector = PoseDetector(cfg)
 
-    # ── audio threat detector (shared across all videos) ──────────────────────
-    audio_det = None
-    if cfg.audio_enabled:
-        audio_det = AudioThreatDetector(device=str(device))
-        if not audio_det.available:
-            audio_det = None
-
     labels_file = os.path.join(eval_dir, "labels.json")
     with open(labels_file) as f:
         labels = json.load(f)
@@ -1682,7 +1634,6 @@ def evaluate_dir(eval_dir, verbose=False, debug=False, enable_pi=False,
     print(f"Config     : {'Pi' if enable_pi else 'PC'}")
     print(f"{model_type.upper()} device : {device}")
     print(f"Live sim   : {'ON  (wall-clock dt, native-FPS pacing per video)' if simulate_live else 'OFF (fixed dt=step_dt, batch speed)'}")
-    print(f"Audio      : {'ON' if audio_det is not None else 'OFF'}")
     print(f"Ignore     : frames before 'first_stand' per video (fallback: 12.0s)")
     print("=" * 80)
 
@@ -1720,21 +1671,11 @@ def evaluate_dir(eval_dir, verbose=False, debug=False, enable_pi=False,
             if debug:
                 print(f"\n  [debug] {video_name}")
 
-            # Pre-compute audio scores for this video
-            vid_audio_scores = {}
-            if audio_det is not None:
-                _cap_tmp = cv2.VideoCapture(video_path)
-                _fps_tmp = _cap_tmp.get(cv2.CAP_PROP_FPS) or cfg.input_fps
-                _cap_tmp.release()
-                vid_audio_scores = audio_det.score_video(
-                    video_path, _fps_tmp, cfg.frame_stride, cfg.audio_window_sec)
-
             # Use labelled first_stand as the skip region; fall back to 12s.
             _fs_frame = gt.get("first_stand", 0)
             result = run_on_file(video_path, cfg, model, device, detector,
                                  early_thresh, verbose=verbose, debug=debug,
                                  simulate_live=simulate_live,
-                                 audio_scores=vid_audio_scores,
                                  ignore_start_frame=_fs_frame,
                                  model_type=model_type)
 
@@ -1768,20 +1709,10 @@ def evaluate_dir(eval_dir, verbose=False, debug=False, enable_pi=False,
             if debug:
                 print(f"\n  [debug] {video_file}")
 
-            # Pre-compute audio scores for this video
-            vid_audio_scores = {}
-            if audio_det is not None:
-                _cap_tmp = cv2.VideoCapture(video_path)
-                _fps_tmp = _cap_tmp.get(cv2.CAP_PROP_FPS) or cfg.input_fps
-                _cap_tmp.release()
-                vid_audio_scores = audio_det.score_video(
-                    video_path, _fps_tmp, cfg.frame_stride, cfg.audio_window_sec)
-
             # Safe videos have no first_stand label; fall back to 12s.
             result = run_on_file(video_path, cfg, model, device, detector,
                                  early_thresh, verbose=verbose, debug=debug,
                                  simulate_live=simulate_live,
-                                 audio_scores=vid_audio_scores,
                                  ignore_start_sec=12.0,
                                  model_type=model_type)
 
@@ -2088,36 +2019,17 @@ def evaluate_dir(eval_dir, verbose=False, debug=False, enable_pi=False,
 
 def _print_verbose_timeline(video_name, timeline):
     """Print a formatted frame-by-frame timeline table for verbose mode."""
-    # Check if any frame has a non-zero audio score → show audio columns
-    has_audio = any(row.get("audio_score", 0) > 0 for row in timeline)
-
     print(f"\n  --- Verbose timeline: {video_name} ---")
-    if has_audio:
-        hdr = (f"  {'frame':>6}  {'level':>10}  {'raw':>6}  {'ema':>6}  "
-               f"{'fused':>6}  {'aud':>5}  {'audio_class':<18}  "
-               f"{'thf':>7}  {'ls':>6}  {'persist':>7}")
-    else:
-        hdr = (f"  {'frame':>6}  {'level':>10}  {'raw':>6}  {'ema':>6}  "
-               f"{'thf':>7}  {'ls':>6}  {'persist':>7}")
+    hdr = (f"  {'frame':>6}  {'level':>10}  {'raw':>6}  {'ema':>6}  "
+           f"{'thf':>7}  {'ls':>6}  {'persist':>7}")
     print(hdr)
     print("  " + "-" * (len(hdr) - 2))
     for row in timeline:
-        a_score = row.get("audio_score", 0.0)
-        a_cls   = row.get("audio_cls", "")
-        fused   = row.get("hazard_fused", row["hazard_ema"])
-        if has_audio:
-            print(f"  {row['frame']:>6}  {row['level']:>10}  "
-                  f"{row['hazard_raw']:>6.3f}  {row['hazard_ema']:>6.3f}  "
-                  f"{fused:>6.3f}  {a_score:>5.3f}  {a_cls:<18}  "
-                  f"{row['torso_height_frac']:>7.3f}  "
-                  f"{row['log_scale']:>6.3f}  "
-                  f"{row['persist']:>7}")
-        else:
-            print(f"  {row['frame']:>6}  {row['level']:>10}  "
-                  f"{row['hazard_raw']:>6.3f}  {row['hazard_ema']:>6.3f}  "
-                  f"{row['torso_height_frac']:>7.3f}  "
-                  f"{row['log_scale']:>6.3f}  "
-                  f"{row['persist']:>7}")
+        print(f"  {row['frame']:>6}  {row['level']:>10}  "
+              f"{row['hazard_raw']:>6.3f}  {row['hazard_ema']:>6.3f}  "
+              f"{row['torso_height_frac']:>7.3f}  "
+              f"{row['log_scale']:>6.3f}  "
+              f"{row['persist']:>7}")
     print()
 
 
@@ -2206,12 +2118,6 @@ if __name__ == "__main__":
              "without needing a live camera.  Has no effect on camera (int) sources.")
 
     parser.add_argument(
-        "--no-audio", action="store_true",
-        help="Disable audio fusion even if panns_inference is installed.  "
-             "Useful for isolating visual-only performance or when the video "
-             "files have no meaningful audio track.")
-
-    parser.add_argument(
         "--analyze", action="store_true",
         help="With --eval-dir: run window-level analysis (F1, PR curve, "
              "ROC curve, feature importance) instead of Live Detection.  "
@@ -2237,7 +2143,6 @@ if __name__ == "__main__":
                      debug=args.debug,
                      enable_pi=args.pi,
                      simulate_live=args.simulate_live,
-                     no_audio=args.no_audio,
                      analyze=args.analyze,
                      split_silence=args.split_silence)
         sys.exit(0)
@@ -2271,5 +2176,4 @@ if __name__ == "__main__":
         enable_pi=args.pi,
         verbose=args.verbose,
         debug=args.debug,
-        simulate_live=args.simulate_live,
-        no_audio=args.no_audio)
+        simulate_live=args.simulate_live)

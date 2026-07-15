@@ -340,8 +340,6 @@ Any other relevant information
 
 ### Medium Priority
 
-- [ ] Attention mechanism for temporal modeling
-- [ ] Audio features integration
 - [ ] Transfer learning experiments
 - [ ] Mobile/web deployment examples
 

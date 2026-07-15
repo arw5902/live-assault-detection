@@ -229,7 +229,7 @@ Then extract windows: Train_windows, Val_windows
 
 **Challenge:** Videos have varying lengths (50 frames to 500 frames)
 
-**Solution:** Greedy algorithm to achieve target window fraction (15%) while splitting at video level
+**Solution:** Greedy algorithm to achieve target window fraction (20%) while splitting at video level
 
 **Benefits:**
 - ✅ No data leakage
@@ -481,9 +481,7 @@ After:  Run1=0.856, Run2=0.856, Run3=0.856 ✓
 **Future Research Directions:**
 
 **Near-Term (3-6 months):**
-- [ ] Attention mechanism for temporal modeling
 - [ ] Bidirectional GRU for better context
-- [ ] Audio features integration (yelling, threats)
 
 **Mid-Term (6-12 months):**
 - [ ] Multi-person tracking and detection
