@@ -2,7 +2,7 @@ import numpy as np
 import cv2
 from .config import Config
 
-# ── Hailo host-side post-processing helpers ───────────────────────────────────
+# Hailo host-side post-processing helpers
 
 _REG_MAX = 16                                          # YOLOv8 DFL bins
 _PROJ    = np.arange(_REG_MAX, dtype=np.float32)      # [0, 1, ..., 15]
@@ -23,7 +23,7 @@ def _dfl_decode(box_raw: np.ndarray) -> np.ndarray:
     b -= b.max(axis=-1, keepdims=True)          # numerical stability
     e  = np.exp(b)
     s  = e / e.sum(axis=-1, keepdims=True)      # softmax over REG_MAX bins
-    return (s * _PROJ).sum(axis=-1)             # weighted sum → (N, 4)
+    return (s * _PROJ).sum(axis=-1)             # weighted sum -> (N, 4)
 
 
 def _decode_scale(box_raw, conf_raw, kps_raw, stride, conf_thresh):
@@ -32,11 +32,11 @@ def _decode_scale(box_raw, conf_raw, kps_raw, stride, conf_thresh):
 
     box_raw  : (H, W, 64)   DFL box regression logits
     conf_raw : (H, W,  1)   person class logits
-    kps_raw  : (H, W, 51)   raw keypoint predictions (x, y, vis) × 17
+    kps_raw  : (H, W, 51)   raw keypoint predictions (x, y, vis) x 17
     stride   : int          feature-map stride (8, 16, or 32)
 
     Returns (boxes, confs, kps) for anchors above conf_thresh,
-    all coordinates in MODEL INPUT pixel space (e.g. 640×640).
+    all coordinates in MODEL INPUT pixel space (e.g. 640x640).
 
     NOTE: sigmoid is applied here to conf and keypoint visibility.
     If the HEF already embeds sigmoid (depends on ONNX export options)
@@ -46,8 +46,8 @@ def _decode_scale(box_raw, conf_raw, kps_raw, stride, conf_thresh):
     N    = H * W
 
     # conf is already in [0, 1] after dequantisation: the Hailo compiler fuses
-    # sigmoid into the conf output (scale ≈ 1/255, zp = 0).  Do NOT apply
-    # _sigmoid() again — that would push every near-zero background anchor to
+    # sigmoid into the conf output (scale ~ 1/255, zp = 0).  Do NOT apply
+    # _sigmoid() again - that would push every near-zero background anchor to
     # sigmoid(0.0) = 0.50, causing all ~8000 background anchors to fire.
     conf_flat = conf_raw.reshape(N).astype(np.float32)
     mask = conf_flat > conf_thresh
@@ -65,7 +65,7 @@ def _decode_scale(box_raw, conf_raw, kps_raw, stride, conf_thresh):
     ax = gx + 0.5
     ay = gy + 0.5
 
-    # DFL decode → ltrb (grid-cell units) → pixel xyxy
+    # DFL decode -> ltrb (grid-cell units) -> pixel xyxy
     ltrb = _dfl_decode(box_raw.reshape(N, 64).astype(np.float32)[idx])
     x1 = (ax - ltrb[:, 0]) * stride
     y1 = (ay - ltrb[:, 1]) * stride
@@ -73,16 +73,16 @@ def _decode_scale(box_raw, conf_raw, kps_raw, stride, conf_thresh):
     y2 = (ay + ltrb[:, 3]) * stride
     boxes = np.stack([x1, y1, x2, y2], axis=1)   # (m, 4)
 
-    # Keypoint decode — Ultralytics YOLOv8-pose formula:
-    #   kp_x = (kp_x_raw * 2.0 + gx) * stride
-    #   kp_y = (kp_y_raw * 2.0 + gy) * stride
-    #   vis  = sigmoid(vis_raw)
+    # Keypoint decode - Ultralytics YOLOv8-pose formula:
+    # kp_x = (kp_x_raw * 2.0 + gx) * stride
+    # kp_y = (kp_y_raw * 2.0 + gy) * stride
+    # vis  = sigmoid(vis_raw)
     #
     # The Pose head's cv4 conv outputs raw logits for x,y with NO sigmoid;
     # sigmoid is only applied to visibility (3rd channel per keypoint).
-    # After dequantisation the x,y logits are in roughly [−7, +5], giving:
-    #   kp coordinate range ≈ (logit×2 + gx) × stride
-    # which can reach any pixel in the image — correct full-body range.
+    # After dequantisation the x,y logits are in roughly [-7, +5], giving:
+    # kp coordinate range ~ (logitx2 + gx) x stride
+    # which can reach any pixel in the image - correct full-body range.
     #
     # Applying _sigmoid() to x,y (old approach) clamps them to [0,1] and
     # restricts every keypoint to a 2-grid-cell band around the anchor
@@ -126,9 +126,9 @@ def _postprocess(outputs, conf_thresh, iou_thresh, input_wh, orig_shape):
     orig_shape: (H, W, C)  original BGR frame shape
 
     Stream grouping is detected automatically from channel count:
-      C == 64  → DFL box regression
-      C ==  1  → person confidence
-      C == 51  → keypoints (17 × 3)
+      C == 64  -> DFL box regression
+      C ==  1  -> person confidence
+      C == 51  -> keypoints (17 x 3)
 
     Returns dict {bbox, det_conf, kps} in ORIGINAL frame coordinates,
     or None if no person detected.
@@ -136,7 +136,7 @@ def _postprocess(outputs, conf_thresh, iou_thresh, input_wh, orig_shape):
     box_map = {}; conf_map = {}; kps_map = {}
 
     for name, arr in outputs.items():
-        a = np.array(arr)[0]        # drop batch dim → (H, W, C)
+        a = np.array(arr)[0]        # drop batch dim -> (H, W, C)
         H, W, C = a.shape
         stride = input_wh[0] // W   # 640//80=8, 640//40=16, 640//20=32
         if   C == 64: box_map[stride]  = a
@@ -176,7 +176,7 @@ def _postprocess(outputs, conf_thresh, iou_thresh, input_wh, orig_shape):
     det_conf = float(kc[best])
     kps17    = kk[best].astype(np.float32)   # (17, 3)
 
-    # Rescale from model input space → original frame space
+    # Rescale from model input space -> original frame space
     iw, ih = input_wh
     oh, ow = orig_shape[:2]
     if iw != ow or ih != oh:
@@ -194,13 +194,13 @@ def _postprocess(outputs, conf_thresh, iou_thresh, input_wh, orig_shape):
     return {"bbox": bbox, "det_conf": det_conf, "kps": kps17}
 
 
-# ── PoseDetector ──────────────────────────────────────────────────────────────
+# PoseDetector
 
 class PoseDetector:
     """
     Unified pose detector supporting two backends:
-      "ultralytics" — YOLOv8 .pt via Ultralytics (PC / development)
-      "hailo"       — YOLOv8 .hef via HailoRT NPU (Raspberry Pi 5 + AI HAT+)
+      "ultralytics" - YOLOv8 .pt via Ultralytics (PC / development)
+      "hailo"       - YOLOv8 .hef via HailoRT NPU (Raspberry Pi 5 + AI HAT+)
 
     Backend is selected by cfg.pose_backend.
     Both backends return the same dict format:
@@ -216,7 +216,7 @@ class PoseDetector:
         else:
             self._init_ultralytics()
 
-    # ── Ultralytics backend ───────────────────────────────────────────────────
+    # Ultralytics backend
 
     def _init_ultralytics(self):
         from ultralytics import YOLO
@@ -225,10 +225,10 @@ class PoseDetector:
 
     def _infer_ultralytics(self, frame: np.ndarray):
         # r = self._model(frame,
-        #                 imgsz=self.cfg.yolo_imgsz,    # to be consistent with size 416 HEF on the Pi
-        #                 conf=self.cfg.yolo_conf,
-        #                 iou=self.cfg.yolo_iou,
-        #                 verbose=False)[0]
+        # imgsz=self.cfg.yolo_imgsz,    # to be consistent with size 416 HEF on the Pi
+        # conf=self.cfg.yolo_conf,
+        # iou=self.cfg.yolo_iou,
+        # verbose=False)[0]
         r = self._model(frame,
                         conf=self.cfg.yolo_conf,
                         iou=self.cfg.yolo_iou,
@@ -246,7 +246,7 @@ class PoseDetector:
                 "det_conf": float(scores[i]),
                 "kps": kps17}
 
-    # ── Hailo backend ─────────────────────────────────────────────────────────
+    # Hailo backend
 
     def _init_hailo(self):
         from hailo_platform import (VDevice, HEF, ConfigureParams,
@@ -272,12 +272,12 @@ class PoseDetector:
 
         # Per-output quantisation params for manual dequantisation.
         # HailoRT returns uint8/uint16 raw integers; recover float logits with:
-        #   float_value = (raw_int - zero_point) * scale
+        # float_value = (raw_int - zero_point) * scale
         self._out_quant = {}
         for info in hef.get_output_vstream_infos():
             qi = info.quant_info
             self._out_quant[info.name] = (float(qi.qp_scale), float(qi.qp_zp))
-        # ── diagnostic: show what quant params were loaded ──────────────────
+        # diagnostic: show what quant params were loaded
         print("[Hailo quant] quant params loaded for:")
         for n, (s, z) in self._out_quant.items():
             print(f"  name='{n}'  scale={s:.6f}  zp={z:.1f}")
@@ -303,7 +303,7 @@ class PoseDetector:
 
         raw_outputs = self._pipeline.infer({self._input_name: inp})
 
-        # ── Dequantise: uint8/uint16 raw integers → float32 logits ───────────
+        # Dequantise: uint8/uint16 raw integers -> float32 logits
         # float = (raw - zero_point) * scale   (per-tensor params from HEF)
         # No-op if HailoRT already returns float32.
         outputs = {}
@@ -315,10 +315,10 @@ class PoseDetector:
                     a = (a.astype(np.float32) - zp) * scale
                 else:
                     print(f"[Hailo quant] WARN: no quant params for '{name}'"
-                          f" (dtype={a.dtype}) — raw values used, will cause wrong results")
+                          f" (dtype={a.dtype}) - raw values used, will cause wrong results")
             outputs[name] = a
 
-        # ── first-call diagnostic: print dequantised shapes & value ranges ───
+        # first-call diagnostic: print dequantised shapes & value ranges
         if not getattr(self, '_hailo_debug_done', False):
             self._hailo_debug_done = True
             print("[Hailo debug] input  name :", self._input_name,
@@ -335,7 +335,7 @@ class PoseDetector:
                             self._input_wh,
                             orig_shape)
 
-    # ── public API ────────────────────────────────────────────────────────────
+    # public API
 
     def infer(self, frame: np.ndarray):
         """

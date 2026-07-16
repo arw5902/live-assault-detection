@@ -11,9 +11,9 @@ Permutation importance measures how much model performance drops when a feature'
 **Algorithm:**
 1. Compute baseline F1 score on validation set
 2. For each feature:
-   - Randomly shuffle (permute) that feature's values across all samples
-   - Re-compute F1 score with permuted feature
-   - F1 drop = baseline F1 - permuted F1
+ - Randomly shuffle (permute) that feature's values across all samples
+ - Re-compute F1 score with permuted feature
+ - F1 drop = baseline F1 - permuted F1
 3. Repeat each permutation 5 times and average for stability
 4. Rank features by average F1 drop
 
@@ -24,15 +24,15 @@ Permutation importance measures how much model performance drops when a feature'
 Contains three main functions:
 
 - `compute_permutation_importance(model, val_loader, threshold, device, n_repeats=5)`
-  - Computes permutation importance for all 59 features
-  - Returns importance scores and baseline F1
+ - Computes permutation importance for all 59 features
+ - Returns importance scores and baseline F1
 
 - `print_importance_ranking(importances, baseline_f1)`
-  - Prints features ranked by importance
-  - Shows F1 drop, standard deviation, and percentage contribution
+ - Prints features ranked by importance
+ - Shows F1 drop, standard deviation, and percentage contribution
 
 - `save_importance_results(importances, baseline_f1, output_path)`
-  - Saves results to JSON file for further analysis
+ - Saves results to JSON file for further analysis
 
 ### 2. **src/train.py** (MODIFIED)
 
@@ -41,11 +41,11 @@ Added feature importance computation at the end of training:
 ```python
 # After training completes, compute feature importance
 importances, baseline_f1 = compute_permutation_importance(
-    model=model,
-    val_loader=dl_va,
-    threshold=global_best_thresh,
-    device=device,
-    n_repeats=5
+ model=model,
+ val_loader=dl_va,
+ threshold=global_best_thresh,
+ device=device,
+ n_repeats=5
 )
 
 # Print ranking
@@ -61,17 +61,17 @@ Added `FEATURE_NAMES` list defining all 59 feature names (see `src/config.py` fo
 
 ```python
 FEATURE_NAMES = [
-    # Reliability/Metadata       indices 0-8
-    # Bbox/Approach              indices 9-16
-    # Upper Body Geometry        indices 17-24
-    # Lower Body Geometry        indices 25-31
-    # Optical Flow – Torso ROI   indices 32-35
-    # Optical Flow – Lower ROI   indices 36-39
-    # Optical Flow – Background  indices 40-41
-    # Posture                    indices 42-44
-    # Dynamics                   indices 45-47
-    # Body-shape Extras          indices 48-55
-    # Interaction Features       indices 56-58
+ # Reliability/Metadata indices 0-8
+ # Bbox/Approach indices 9-16
+ # Upper Body Geometry indices 17-24
+ # Lower Body Geometry indices 25-31
+ # Optical Flow - Torso ROI indices 32-35
+ # Optical Flow - Lower ROI indices 36-39
+ # Optical Flow - Background indices 40-41
+ # Posture indices 42-44
+ # Dynamics indices 45-47
+ # Body-shape Extras indices 48-55
+ # Interaction Features indices 56-58
 ]
 ```
 
@@ -97,13 +97,13 @@ FEATURE IMPORTANCE RANKING (sorted by F1 drop)
 ================================================================================
 Baseline F1: 0.8330
 
-Rank   Feature                        F1 Drop      Std        Importance %  Index
+Rank Feature F1 Drop Std Importance % Index
 --------------------------------------------------------------------------------
-1  ⭐  expansion_proximity            +0.xxxxx   ±0.xxxxxx    24.70%        57
-2  ⭐  torso_height_px                +0.xxxxx   ±0.xxxxxx    20.80%        48
-3  ⭐  divergence_torso               +0.xxxxx   ±0.xxxxxx     9.90%        34
-4  ⭐  divergence_lower               +0.xxxxx   ±0.xxxxxx     7.30%        38
-5  ⭐  acceleration_proximity         +0.xxxxx   ±0.xxxxxx     7.10%        58
+1 * expansion_proximity +0.xxxxx ±0.xxxxxx 24.70% 57
+2 * torso_height_px +0.xxxxx ±0.xxxxxx 20.80% 48
+3 * divergence_torso +0.xxxxx ±0.xxxxxx 9.90% 34
+4 * divergence_lower +0.xxxxx ±0.xxxxxx 7.30% 38
+5 * acceleration_proximity +0.xxxxx ±0.xxxxxx 7.10% 58
 ...
 ```
 
@@ -111,27 +111,27 @@ Rank   Feature                        F1 Drop      Std        Importance %  Inde
 
 ```json
 {
-  "baseline_f1": 0.8330,
-  "total_importance": 0.xxxx,
-  "features": [
-    {
-      "rank": 1,
-      "name": "expansion_proximity",
-      "index": 57,
-      "f1_drop_mean": 0.xxxxxx,
-      "f1_drop_std": 0.xxxxxx,
-      "importance_percent": 24.70
-    },
-    {
-      "rank": 2,
-      "name": "torso_height_px",
-      "index": 48,
-      "f1_drop_mean": 0.xxxxxx,
-      "f1_drop_std": 0.xxxxxx,
-      "importance_percent": 20.80
-    },
-    ...
-  ]
+ "baseline_f1": 0.8330,
+ "total_importance": 0.xxxx,
+ "features": [
+ {
+ "rank": 1,
+ "name": "expansion_proximity",
+ "index": 57,
+ "f1_drop_mean": 0.xxxxxx,
+ "f1_drop_std": 0.xxxxxx,
+ "importance_percent": 24.70
+ },
+ {
+ "rank": 2,
+ "name": "torso_height_px",
+ "index": 48,
+ "f1_drop_mean": 0.xxxxxx,
+ "f1_drop_std": 0.xxxxxx,
+ "importance_percent": 20.80
+ },
+ ...
+ ]
 }
 ```
 
@@ -163,7 +163,7 @@ Based on the current 59-feature model with `window_len=5`:
 | 4 | divergence_lower | 7.3% | 38 | Optical Flow (Lower) |
 | 5 | acceleration_proximity | 7.1% | 58 | Interaction |
 
-**Key Insight:** The top 5 features account for ~69.8% of total importance — a much sharper concentration than the previous 51-feature model. The interaction feature `expansion_proximity` (proximity-gated optical-flow expansion) and the apparent body size `torso_height_px` jointly account for ~45%, confirming that **scale/proximity cues dominate the decision**: the same motion is only threatening when the person is large in frame and getting larger. Raw flow divergence in the torso and lower-body ROIs (ranks 3–4) provides the next-strongest evidence, and `acceleration_proximity` (rank 5) adds the proximity-gated wrist-acceleration signal.
+**Key Insight:** The top 5 features account for ~69.8% of total importance - a much sharper concentration than the previous 51-feature model. The interaction feature `expansion_proximity` (proximity-gated optical-flow expansion) and the apparent body size `torso_height_px` jointly account for ~45%, confirming that **scale/proximity cues dominate the decision**: the same motion is only threatening when the person is large in frame and getting larger. Raw flow divergence in the torso and lower-body ROIs (ranks 3-4) provides the next-strongest evidence, and `acceleration_proximity` (rank 5) adds the proximity-gated wrist-acceleration signal.
 
 ## Computational Cost
 
@@ -181,11 +181,11 @@ Edit `src/train.py`:
 
 ```python
 importances, baseline_f1 = compute_permutation_importance(
-    model=model,
-    val_loader=dl_va,
-    threshold=global_best_thresh,
-    device=device,
-    n_repeats=10  # Increase for more stable estimates (slower)
+ model=model,
+ val_loader=dl_va,
+ threshold=global_best_thresh,
+ device=device,
+ n_repeats=10 # Increase for more stable estimates (slower)
 )
 ```
 
@@ -202,7 +202,7 @@ Comment out the feature importance section in `src/train.py` (lines 327-348).
 
 **Important:** After changing `window_len` or the feature set:
 
-1. **Retrain the model** (required — model input shape changes with feature count or window length)
+1. **Retrain the model** (required - model input shape changes with feature count or window length)
 2. **Feature importance will be recomputed automatically**
 3. **Compare results** with the previous run to track ranking changes
 
@@ -235,11 +235,11 @@ model.to(device)
 
 # Compute importance
 importances, baseline_f1 = compute_permutation_importance(
-    model=model,
-    val_loader=val_loader,
-    threshold=0.35,  # Use your best threshold
-    device=device,
-    n_repeats=5
+ model=model,
+ val_loader=val_loader,
+ threshold=0.35, # Use your best threshold
+ device=device,
+ n_repeats=5
 )
 
 print_importance_ranking(importances, baseline_f1)
@@ -253,7 +253,7 @@ Solution: Reduce batch size or use CPU
 
 ```python
 # In src/feature_importance.py, line ~90
-batch_size = 32  # Reduce from val_loader.batch_size
+batch_size = 32 # Reduce from val_loader.batch_size
 ```
 
 ### Features have negative importance

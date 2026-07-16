@@ -28,7 +28,7 @@ Or download manually from: https://github.com/ultralytics/assets/releases
 ### 3. Verify Installation
 
 ```bash
-python -c "from src.model import HazardGRU; print('✓ Installation successful!')"
+python -c "from src.model import HazardGRU; print('[x] Installation successful!')"
 ```
 
 ## Usage Examples
@@ -44,18 +44,18 @@ python -m src.infer path/to/video.mp4
 ```bash
 # 1. Prepare data in this structure:
 # data/
-#   safe/
-#     s1.mp4
-#     s2.mp4
-#   attack/
-#     a1.mp4
-#     a2.mp4
+# safe/
+# s1.mp4
+# s2.mp4
+# attack/
+# a1.mp4
+# a2.mp4
 
 # 2. Run training
 python -m src.train
 
 # Output: outputs/checkpoints/hazard_gru_YYYYMMDD_HHMMSS.pt
-#         outputs/checkpoints/meta.json  (stores model filename + best threshold)
+# outputs/checkpoints/meta.json (stores model filename + best threshold)
 ```
 
 ### Evaluation (if you have holdout data)
@@ -63,11 +63,11 @@ python -m src.train
 ```bash
 # 1. Prepare holdout data:
 # holdout/
-#   labels.json
-#   safe/
-#     s1.mp4
-#   attack/
-#     h1.mp4
+# labels.json
+# safe/
+# s1.mp4
+# attack/
+# h1.mp4
 
 # 2. Run evaluation
 python -m src.evaluate holdout/
@@ -93,14 +93,14 @@ python -m src.evaluate holdout/
 **labels.json format:**
 ```json
 {
-  "h1.mp4": {
-    "category": "attack",
-    "onset_frame": 126,
-    "attack_frame": 150
-  },
-  "s1.mp4": {
-    "category": "safe"
-  }
+ "h1.mp4": {
+ "category": "attack",
+ "onset_frame": 126,
+ "attack_frame": 150
+ },
+ "s1.mp4": {
+ "category": "safe"
+ }
 }
 ```
 
@@ -110,11 +110,11 @@ Edit `src/config.py` to customize:
 
 ```python
 # Quick tweaks
-window_len = 5              # Temporal window (frames)
-safe_window_stride = 2      # Stride for safe videos
-focal_gamma = 2.0           # Focus on hard examples
-focal_alpha = 0.75          # Attack class weight
-early_thresh = 0.50         # THREAT threshold (tuned during training)
+window_len = 5 # Temporal window (frames)
+safe_window_stride = 2 # Stride for safe videos
+focal_gamma = 2.0 # Focus on hard examples
+focal_alpha = 0.75 # Attack class weight
+early_thresh = 0.50 # THREAT threshold (tuned during training)
 ```
 
 ## Common Issues
@@ -186,6 +186,6 @@ pip install torch --index-url https://download.pytorch.org/whl/cu118
 
 ---
 
-**Time to first inference: < 5 minutes** ⚡
+**Time to first inference: < 5 minutes**
 
-Happy detecting! 🎯
+Happy detecting!

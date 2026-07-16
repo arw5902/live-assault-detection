@@ -26,18 +26,18 @@ LEVEL_COLOR = {
 }
 
 # COCO-17 skeleton: pairs of keypoint indices to connect with a line
-# Index → joint:  0=nose 1=l_eye 2=r_eye 3=l_ear 4=r_ear
-#                 5=l_shoulder 6=r_shoulder 7=l_elbow 8=r_elbow
-#                 9=l_wrist 10=r_wrist 11=l_hip 12=r_hip
-#                 13=l_knee 14=r_knee 15=l_ankle 16=r_ankle
+# Index -> joint:  0=nose 1=l_eye 2=r_eye 3=l_ear 4=r_ear
+# 5=l_shoulder 6=r_shoulder 7=l_elbow 8=r_elbow
+# 9=l_wrist 10=r_wrist 11=l_hip 12=r_hip
+# 13=l_knee 14=r_knee 15=l_ankle 16=r_ankle
 COCO17_SKELETON = [
-    (0,  1), (0,  2),           # nose → eyes
-    (1,  3), (2,  4),           # eyes → ears
-    (5,  6),                    # left shoulder → right shoulder
+    (0,  1), (0,  2),           # nose -> eyes
+    (1,  3), (2,  4),           # eyes -> ears
+    (5,  6),                    # left shoulder -> right shoulder
     (5,  7), (7,  9),           # left arm
     (6,  8), (8, 10),           # right arm
-    (5, 11), (6, 12),           # shoulders → hips
-    (11, 12),                   # left hip → right hip
+    (5, 11), (6, 12),           # shoulders -> hips
+    (11, 12),                   # left hip -> right hip
     (11, 13), (13, 15),         # left leg
     (12, 14), (14, 16),         # right leg
 ]
@@ -138,14 +138,14 @@ def draw_overlay(frame: np.ndarray, bbox, level: str, hazard: float,
     if kps is not None:
         draw_skeleton(vis, kps)
 
-    # Torso ROI — cyan dashed rectangle
+    # Torso ROI - cyan dashed rectangle
     if roi_torso is not None:
         tx1, ty1, tx2, ty2 = [int(v) for v in roi_torso]
         _dashed_rect(vis, tx1, ty1, tx2, ty2, (255, 210, 0))
         cv2.putText(vis, "T", (tx1 + 2, ty1 + 12),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.35, (255, 210, 0), 1, cv2.LINE_AA)
 
-    # Lower-body ROI — magenta dashed rectangle
+    # Lower-body ROI - magenta dashed rectangle
     if roi_lower is not None:
         lx1, ly1, lx2, ly2 = [int(v) for v in roi_lower]
         _dashed_rect(vis, lx1, ly1, lx2, ly2, (255, 0, 200))
@@ -157,7 +157,7 @@ def draw_overlay(frame: np.ndarray, bbox, level: str, hazard: float,
         x1, y1, x2, y2 = [int(v) for v in bbox]
         cv2.rectangle(vis, (x1, y1), (x2, y2), color, 2)
 
-    # Hazard bar along the top edge (width ∝ score)
+    # Hazard bar along the top edge (width ~ score)
     bar_w = int(w * min(max(hazard, 0.0), 1.0))
     cv2.rectangle(vis, (0, 0), (bar_w, 8), color, -1)
 
@@ -222,7 +222,7 @@ class _BackgroundCapture:
                     self._stop.set()
                     break
             # Resize to inference resolution when the camera native size differs
-            # (no-op for PiCamera2, which is already opened at 640 × 480).
+            # (no-op for PiCamera2, which is already opened at 640 x 480).
             if self._resize_hw is not None:
                 th, tw = self._resize_hw
                 if frame.shape[0] != th or frame.shape[1] != tw:
@@ -257,16 +257,16 @@ def run(video_source,
         verbose: bool       = False,
         debug: bool         = False,
         simulate_live: bool = False):
-    """Core inference loop — video file or live camera.
+    """Core inference loop - video file or live camera.
 
     Args:
-        video_source: int → camera device index (cv2.VideoCapture);
-            str → video file path.
+        video_source: int -> camera device index (cv2.VideoCapture);
+            str -> video file path.
         display: show an annotated OpenCV window. Automatically enabled
             when video_source is int.
         record: write raw (un-annotated) frames to .mp4 and save a
             per-frame hazard JSON sidecar. The saved video is fully
-            compatible with evaluate.py — add a labels.json and run
+            compatible with evaluate.py - add a labels.json and run
             evaluate.py on it to measure accuracy offline.
         record_dir: directory for saved recordings.
         use_picamera2: use picamera2 for Pi Camera Module (RPi5 + AI HAT+).
@@ -275,13 +275,13 @@ def run(video_source,
         show_skeleton: overlay COCO-17 keypoints and limb lines on the
             display window. Has no effect on the raw recording.
         simulate_live: pace a video-file source to match the file's native
-            FPS and use actual wall-clock dt for feature derivatives —
+            FPS and use actual wall-clock dt for feature derivatives -
             making a pre-recorded video behave identically to a live camera
             feed. Ignored when video_source is a camera int.
     """
     set_seed(seed=42, deterministic=True)
 
-    # Note Config.for_pi() will disable skeleton being displayed on screen, 
+    # Note Config.for_pi() will disable skeleton being displayed on screen,
     # probably due to hailo backend instead of ultralytics
     cfg      = Config.for_pi() if enable_pi else Config.for_pc()
     detector = PoseDetector(cfg)
@@ -290,7 +290,7 @@ def run(video_source,
     print(f"Pose backend: {cfg.pose_backend}")
 
 
-    # ── load model ────────────────────────────────────────────────────────────
+    # load model
     with open("outputs/checkpoints/meta.json") as f:
         meta         = json.load(f)
         input_dim    = meta["input_dim"]
@@ -298,7 +298,7 @@ def run(video_source,
         model_file   = meta.get("model_file", "hazard_gru.pt")
         model_type   = meta.get("model_type", "gru")
 
-    # Model runs on CPU on Pi — too small to benefit from NPU, and PyTorch
+    # Model runs on CPU on Pi - too small to benefit from NPU, and PyTorch
     # is not available on the Hailo NPU without DFC compilation.
     # On a PC with GPU this will use CUDA automatically.
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -318,7 +318,7 @@ def run(video_source,
     print(f"Pose backend: {cfg.pose_backend}")
     print("Deterministic: ON (reproducible optical flow sampling)")
 
-    # ── temporal state (mirrors evaluate.py exactly) ──────────────────────────
+    # temporal state (mirrors evaluate.py exactly)
     buf               = deque(maxlen=cfg.window_len)
     prev_gray         = None
     prev_bbox         = None
@@ -334,7 +334,7 @@ def run(video_source,
     dt                = cfg.step_dt  # file-path default (= frame_stride/input_fps = 0.1 s)
     t_last_infer      = None         # wall-clock time of last processed frame (camera path)
 
-    # ── open video source ─────────────────────────────────────────────────────
+    # open video source
     is_camera = isinstance(video_source, int)
     if is_camera:
         display      = True     # always show window for live camera
@@ -355,7 +355,7 @@ def run(video_source,
             return
         fps_src = cap.get(cv2.CAP_PROP_FPS) or cfg.input_fps
 
-    # ── optional recording ────────────────────────────────────────────────────
+    # optional recording
     writer      = None
     record_path = None
     hazard_log  = []
@@ -372,18 +372,18 @@ def run(video_source,
                                      (cfg.infer_w, cfg.infer_h))
             if writer.isOpened():
                 print(f"Recording raw frames to : {record_path}  "
-                      f"(codec={codec}, {cfg.infer_w}×{cfg.infer_h})")
+                      f"(codec={codec}, {cfg.infer_w}x{cfg.infer_h})")
                 break
             writer.release()
             writer = None
         if writer is None:
-            print(f"WARNING: could not open VideoWriter — recording disabled. "
+            print(f"WARNING: could not open VideoWriter - recording disabled. "
                   f"Check OpenCV codec support on this platform.")
             record_path = None
         else:
             print("(run evaluate.py on this file + labels.json to measure accuracy)")
 
-    # ── background capture thread (camera sources only) ───────────────────────
+    # background capture thread (camera sources only)
     # The background thread captures at the camera's native FPS and writes
     # every frame to the VideoWriter, completely independently of the inference
     # loop.  The inference loop grabs the *latest* frame at cfg.step_dt
@@ -399,7 +399,7 @@ def run(video_source,
             time.sleep(0.01)
         next_infer_t = time.monotonic()
 
-    # ── simulate_live: pacing state for file sources ──────────────────────────
+    # simulate_live: pacing state for file sources
     # frame_period = time between consecutive video frames (1/fps_src).
     # next_frame_t = monotonic clock target for the *next* frame read.
     # Both are only used when simulate_live=True.
@@ -412,12 +412,12 @@ def run(video_source,
         frame_period = None
         next_frame_t = None
 
-    # ── main loop ─────────────────────────────────────────────────────────────
+    # main loop
     frame_idx = 0
     bg_count  = 0   # actual frames written to VideoWriter by background thread
     try:
         while True:
-            # ── capture ───────────────────────────────────────────────────────
+            # capture
             t_frame = None   # set in camera path; stays None for file path
             if bg_cap is not None:
                 # Camera path: sleep until the next inference slot, then
@@ -459,7 +459,7 @@ def run(video_source,
                 # this frame was "received", so frame_dt (used for all velocity /
                 # acceleration features) reflects real elapsed time rather than
                 # the fixed cfg.step_dt constant.  This keeps features on the
-                # same physical scale as training (dt ≈ step_dt = 0.1 s).
+                # same physical scale as training (dt ~ step_dt = 0.1 s).
                 if simulate_live:
                     sleep_s = next_frame_t - time.monotonic()
                     if sleep_s > 0:
@@ -486,7 +486,7 @@ def run(video_source,
                 if simulate_live:
                     t_frame = time.monotonic()
 
-            # ── pose detection ────────────────────────────────────────────────
+            # pose detection
             _t0 = time.perf_counter()
             det = detector.infer(frame)
             _t_pose = time.perf_counter() - _t0
@@ -504,9 +504,9 @@ def run(video_source,
 
             bbox, track_age, lost = tracker.update(det["bbox"])
             det["bbox"] = bbox
-            kps = det["kps"]            # (17, 3) — carry forward for display
+            kps = det["kps"]            # (17, 3) - carry forward for display
 
-            # Camera path: use actual wall-clock Δt between consecutively
+            # Camera path: use actual wall-clock dt between consecutively
             # processed frames so that velocity/acceleration features stay on
             # the same physical scale as the training data (10 FPS, dt=0.1 s).
             # File path: always use cfg.step_dt (= frame_stride/input_fps = 0.1 s).
@@ -514,7 +514,7 @@ def run(video_source,
                 frame_dt = (t_frame - t_last_infer) if t_last_infer is not None else dt
                 t_last_infer = t_frame   # ready for next iteration
             else:
-                frame_dt = dt            # file path — already correct
+                frame_dt = dt            # file path - already correct
 
             _t1 = time.perf_counter()
             x, m, dbg, prev_gray = build_features(
@@ -525,14 +525,14 @@ def run(video_source,
             roi_torso = dbg.get("roi_torso")   # carry forward for display
             roi_lower = dbg.get("roi_lower")   # carry forward for display
 
-            # Temporal derivatives + interaction features — shared implementation.
+            # Temporal derivatives + interaction features - shared implementation.
             dlog_scale_dt = deriv.update(x, m, frame_dt)
             x, m = add_interaction_features(x, m, x[45], x[46], dlog_scale_dt, cfg=cfg)
 
             xm = np.concatenate([x, m], axis=0).astype(np.float32)
             buf.append(xm)
 
-            # ── model inference ───────────────────────────────────────────────
+            # model inference
             if len(buf) == cfg.window_len:
                 inp_t = torch.from_numpy(
                     np.stack(buf)[None, :, :]).to(device)
@@ -553,20 +553,20 @@ def run(video_source,
                 if hazard_ema > early_thresh and persist >= cfg.early_persist:
                     level = "THREAT"
 
-                # Distance gate removed — all alerts pass regardless of subject distance.
+                # Distance gate removed - all alerts pass regardless of subject distance.
                 log_scale_now     = float(x[47])           # kept for diagnostics
                 log_scale_ok      = (float(m[47]) > 0.5)   # kept for diagnostics
                 torso_height_frac = compute_torso_height_frac(
                     kps, frame.shape[0], cfg.kp_conf_thresh, bbox)
 
-                # Elapsed-time label: camera uses actual frames written ÷ fps
+                # Elapsed-time label: camera uses actual frames written / fps
                 # (accurate regardless of inference speed on the Pi);
-                # file uses recorded frame number ÷ input FPS.
+                # file uses recorded frame number / input FPS.
                 t_s = (bg_count / fps_src if is_camera
                        else frame_idx / cfg.input_fps)
                 # Diagnostics:
-                #   thf → torso_height_frac = ||hip_mid−shoulder_mid|| / frame_h
-                #   ls  → log_scale (ok=0 → keypoints invalid, using bbox fallback)
+                # thf -> torso_height_frac = ||hip_mid-shoulder_mid|| / frame_h
+                # ls  -> log_scale (ok=0 -> keypoints invalid, using bbox fallback)
                 if debug:
                     print(f"t={t_s:.2f}s  frame={frame_idx}  "
                           f"raw={hazard_raw:.3f}  ema={hazard_ema:.3f}  "
@@ -579,7 +579,7 @@ def run(video_source,
                           f"total={(_t_pose+_t_flow+_t_model)*1000:.0f}ms  "
                           f"dbg={dbg}")
                 elif verbose:
-                    # Compact one-line summary per frame — less noisy than --debug.
+                    # Compact one-line summary per frame - less noisy than --debug.
                     print(f"t={t_s:.2f}s  frame={frame_idx}  "
                           f"level={level}  ema={hazard_ema:.3f}  "
                           f"thf={torso_height_frac:.3f}  persist={persist}")
@@ -596,7 +596,7 @@ def run(video_source,
                         "level":      level,
                     })
 
-            # ── display ───────────────────────────────────────────────────────
+            # display
             if display:
                 cv2.imshow("Hazard Detection",
                            draw_overlay(frame, bbox, level, hazard_ema,
@@ -609,7 +609,7 @@ def run(video_source,
             frame_idx += 1
 
     finally:
-        # ── cleanup (always runs, even on exception / KeyboardInterrupt) ──────
+        # cleanup (always runs, even on exception / KeyboardInterrupt)
         if bg_cap is not None:
             bg_cap.stop()
         detector.release()
@@ -632,7 +632,7 @@ def run(video_source,
                   "accuracy measurement.")
 
 
-# ── eval-dir: run full live pipeline on a pre-recorded dataset ───────────────
+# eval-dir: run full live pipeline on a pre-recorded dataset
 
 def run_on_file(video_path, cfg, model, device, detector, early_thresh,
                 verbose=False, debug=False, simulate_live=False,
@@ -641,7 +641,7 @@ def run_on_file(video_path, cfg, model, device, detector, early_thresh,
     """
     Run the full live detection state machine on a pre-recorded video file.
 
-    Mirrors the file-path branch of run() exactly — same temporal state:
+    Mirrors the file-path branch of run() exactly - same temporal state:
     hazard_ema, persist counter, log_area derivatives,
     wrist derivatives, and the proximity+approach gate.
 
@@ -668,7 +668,7 @@ def run_on_file(video_path, cfg, model, device, detector, early_thresh,
 
     Returns:
         Dict with keys:
-            first_precontact_frame: first frame where level == THREAT (−1 if never).
+            first_precontact_frame: first frame where level == THREAT (-1 if never).
             all_threat_frames: every frame where level == THREAT.
             max_hazard_raw: max raw model output seen.
             max_hazard_ema: max hazard_ema seen.
@@ -682,7 +682,7 @@ def run_on_file(video_path, cfg, model, device, detector, early_thresh,
     tracker = SingleTargetTracker()
     buf     = deque(maxlen=cfg.window_len)
 
-    # ── temporal state — mirrors run() exactly ───────────────────────────────
+    # temporal state - mirrors run() exactly
     prev_gray         = None
     prev_bbox         = None
     hazard_ema        = 0.0
@@ -708,7 +708,7 @@ def run_on_file(video_path, cfg, model, device, detector, early_thresh,
         skip_before_frame = 0
 
     # simulate_live: pace every frame to the video's native FPS and use
-    # actual wall-clock dt for feature derivatives — identical to run() camera path.
+    # actual wall-clock dt for feature derivatives - identical to run() camera path.
     if simulate_live:
         fps_src      = cap.get(cv2.CAP_PROP_FPS) or cfg.input_fps
         frame_period = 1.0 / fps_src
@@ -745,9 +745,9 @@ def run_on_file(video_path, cfg, model, device, detector, early_thresh,
             continue
 
         # Compute the time delta used for all velocity / acceleration features.
-        # simulate_live: wall-clock Δt between processed frames (mirrors run()
-        #   camera path; dt ≈ step_dt when inference is fast enough, >step_dt
-        #   when a frame takes longer than step_dt — same catch-up behaviour).
+        # simulate_live: wall-clock dt between processed frames (mirrors run()
+        # camera path; dt ~ step_dt when inference is fast enough, >step_dt
+        # when a frame takes longer than step_dt - same catch-up behaviour).
         # Normal batch mode: fixed cfg.step_dt (matches training, deterministic).
         if simulate_live:
             t_now    = time.monotonic()
@@ -756,7 +756,7 @@ def run_on_file(video_path, cfg, model, device, detector, early_thresh,
         else:
             frame_dt = dt
 
-        # Resize to training resolution — keeps pixel-magnitude features on
+        # Resize to training resolution - keeps pixel-magnitude features on
         # the same scale as the training data (log_scale, log_area, flow mags).
         if frame.shape[1] != cfg.infer_w or frame.shape[0] != cfg.infer_h:
             frame = cv2.resize(frame, (cfg.infer_w, cfg.infer_h))
@@ -779,14 +779,14 @@ def run_on_file(video_path, cfg, model, device, detector, early_thresh,
         _t_flow = time.perf_counter() - _t1
         prev_bbox = bbox
 
-        # Temporal derivatives + interaction features — shared implementation.
+        # Temporal derivatives + interaction features - shared implementation.
         dlog_scale_dt = deriv.update(x, m, frame_dt)
         x, m = add_interaction_features(x, m, x[45], x[46], dlog_scale_dt, cfg=cfg)
 
         xm = np.concatenate([x, m], axis=0).astype(np.float32)
         buf.append(xm)
 
-        # ── model inference (only when window is full) ────────────────────────
+        # model inference (only when window is full)
         if len(buf) == cfg.window_len:
             inp_t = torch.from_numpy(
                 np.stack(buf)[None, :, :]).to(device)
@@ -810,15 +810,15 @@ def run_on_file(video_path, cfg, model, device, detector, early_thresh,
             if hazard_ema > early_thresh and persist >= cfg.early_persist:
                 level = "THREAT"
 
-            # Distance gate removed — all alerts pass regardless of subject distance.
+            # Distance gate removed - all alerts pass regardless of subject distance.
             log_scale_now     = float(x[47])           # kept for diagnostics
             log_scale_ok      = (float(m[47]) > 0.5)   # kept for diagnostics
             torso_height_frac = compute_torso_height_frac(
                 det["kps"].astype(np.float32), frame.shape[0], cfg.kp_conf_thresh, bbox)
 
-            # Per-frame diagnostics — captured by TeeLogger → inference_<ts>.log.
-            #   thf → torso_height_frac = ||hip_mid−shoulder_mid|| / frame_h
-            #   ls  → log_scale (ok=0 → keypoints invalid)
+            # Per-frame diagnostics - captured by TeeLogger -> inference_<ts>.log.
+            # thf -> torso_height_frac = ||hip_mid-shoulder_mid|| / frame_h
+            # ls  -> log_scale (ok=0 -> keypoints invalid)
             if debug:
                 print(f"  frame={frame_idx:5d}  "
                       f"raw={hazard_raw:.3f}  ema={hazard_ema:.3f}  "
@@ -878,34 +878,34 @@ def _run_window_analysis(eval_dir, cfg, model, device, detector,
     segment, frame range) to help localize where mistakes occur.
 
     When split_silence=True, the two excluded zones are re-included:
-      - silence zone  [first_stand_after_sit, last_backward_frame] → safe
+      - silence zone  [first_stand_after_sit, last_backward_frame] -> safe
         (labelled "silence-safe", extends the safe seg1 region)
-      - seg2-approach (last_backward_frame, push_start_frame]      → attack
+      - seg2-approach (last_backward_frame, push_start_frame]      -> attack
         (labelled "silence-attack", the approach phase before the push)
     """
     print("\n" + "=" * 80)
     print("WINDOW-LEVEL ANALYSIS (Inference, no EMA)")
     print("=" * 80)
     if split_silence:
-        print("Mode: --split-silence (silence zone → safe, seg2-approach → attack)")
+        print("Mode: --split-silence (silence zone -> safe, seg2-approach -> attack)")
         print("Evaluated segments (attack videos):")
-        print("  seg1-pre        = [first_stand, first_stand_after_sit)         → safe")
-        print("  silence-safe    = [first_stand_after_sit, last_backward_frame] → safe")
-        print("  silence-attack  = (last_backward_frame, push_start_frame]     → attack")
-        print("  seg3-push       = (push_start_frame, push_end_frame]           → attack")
+        print("  seg1-pre        = [first_stand, first_stand_after_sit)         -> safe")
+        print("  silence-safe    = [first_stand_after_sit, last_backward_frame] -> safe")
+        print("  silence-attack  = (last_backward_frame, push_start_frame]     -> attack")
+        print("  seg3-push       = (push_start_frame, push_end_frame]           -> attack")
         print("Excluded segments:")
-        print("  [0, first_stand)                                               → skip start")
-        print("  (push_end_frame, end]                                          → post-attack")
+        print("  [0, first_stand)                                               -> skip start")
+        print("  (push_end_frame, end]                                          -> post-attack")
     else:
         print("Mode: default (silence zone + seg2-approach excluded)")
         print("Evaluated segments (attack videos):")
-        print("  seg1-pre   = [first_stand, first_stand_after_sit)     → safe")
-        print("  seg3-push  = (push_start_frame, push_end_frame]       → attack")
+        print("  seg1-pre   = [first_stand, first_stand_after_sit)     -> safe")
+        print("  seg3-push  = (push_start_frame, push_end_frame]       -> attack")
         print("Excluded segments:")
-        print("  [0, first_stand)                                      → skip start")
-        print("  [first_stand_after_sit, last_backward_frame]           → silence zone")
-        print("  (last_backward_frame, push_start_frame] (seg2-approach)→ label-noisy")
-        print("  (push_end_frame, end]                                  → post-attack")
+        print("  [0, first_stand)                                      -> skip start")
+        print("  [first_stand_after_sit, last_backward_frame]           -> silence zone")
+        print("  (last_backward_frame, push_start_frame] (seg2-approach)-> label-noisy")
+        print("  (push_end_frame, end]                                  -> post-attack")
     print(f"Re-extracting windows from videos for raw {model_type.upper()} analysis...")
 
     set_seed(seed=42, deterministic=True)
@@ -914,7 +914,7 @@ def _run_window_analysis(eval_dir, cfg, model, device, detector,
     # Parallel metadata list aligned with all_Xw / all_Mw / all_yw after concat.
     # Each entry: (video_name, segment_label, end_raw_frame, start_raw_frame)
     # end_raw_frame = raw-video frame index (30 fps) where the window ENDS
-    #                 — this is the frame at which the model makes its decision.
+    # this is the frame at which the model makes its decision.
     # start_raw_frame = raw-video frame index where the window begins.
     all_meta = []
 
@@ -936,20 +936,20 @@ def _run_window_analysis(eval_dir, cfg, model, device, detector,
             end_raw    = end_step   * cfg.frame_stride
             all_meta.append((video_name, seg_label, end_raw, start_raw))
 
-    # Attack videos — split into valid segments, excluding frames before
+    # Attack videos - split into valid segments, excluding frames before
     # first_stand, the silence zone, seg2-approach, and frames after
     # push_end_frame.  Frame indices in labels.json are raw 30fps; after
     # frame_stride they map to step = raw_frame // frame_stride.
     #
-    # Segment 1: [first_stand_step, first_stand_after_sit)               → all safe (0)
-    # Silence zone: [first_stand_after_sit, last_backward_frame]         → EXCLUDED
-    # Segment 2: (last_backward_frame, push_start_frame]                 → EXCLUDED (label-noisy:
-    #            subject often raises hands during approach, producing
-    #            genuine threat cues that the "safe" label does not
-    #            capture; keeping seg2 would inflate FP on windows that
-    #            the model is arguably correctly flagging).
-    # Segment 3: (push_start_frame, push_end_frame]                      → attack (1)
-    # After push_end_frame                                                → EXCLUDED
+    # Segment 1: [first_stand_step, first_stand_after_sit)               -> all safe (0)
+    # Silence zone: [first_stand_after_sit, last_backward_frame]         -> EXCLUDED
+    # Segment 2: (last_backward_frame, push_start_frame]                 -> EXCLUDED (label-noisy:
+    # subject often raises hands during approach, producing
+    # genuine threat cues that the "safe" label does not
+    # capture; keeping seg2 would inflate FP on windows that
+    # the model is arguably correctly flagging).
+    # Segment 3: (push_start_frame, push_end_frame]                      -> attack (1)
+    # After push_end_frame                                                -> EXCLUDED
     #
     # The silence zone and seg2-approach are adjacent and together form
     # one contiguous excluded region [first_stand_after_sit,
@@ -988,9 +988,9 @@ def _run_window_analysis(eval_dir, cfg, model, device, detector,
                 _append_segment(Xw, Mw, yw, video_name, "seg1-pre",
                                 seg1_start, 1)
 
-            # --split-silence: re-include the two excluded zones.
-            #   silence zone  [stand_step, back_step+1)  → safe  ("silence-safe")
-            #   seg2-approach [back_step+1, push_step+1) → attack ("silence-attack")
+            # split-silence: re-include the two excluded zones.
+            # silence zone  [stand_step, back_step+1)  -> safe  ("silence-safe")
+            # seg2-approach [back_step+1, push_step+1) -> attack ("silence-attack")
             if split_silence:
                 # Silence-safe: [first_stand_after_sit, last_backward_frame]
                 ss_start = stand_step
@@ -1017,7 +1017,7 @@ def _run_window_analysis(eval_dir, cfg, model, device, detector,
                                     sa_start, 1)
 
             # Segment 2 (approach): EXCLUDED when split_silence=False
-            #     (label-noisy); otherwise included in silence-attack above.
+            # (label-noisy); otherwise included in silence-attack above.
 
             # Segment 3: push_start to push_end (all attack)
             seg3_start = push_step + 1
@@ -1045,7 +1045,7 @@ def _run_window_analysis(eval_dir, cfg, model, device, detector,
                             0, 1)
 
     if not all_Xw:
-        print("No windows extracted — skipping window-level analysis.")
+        print("No windows extracted - skipping window-level analysis.")
         return
 
     Xw_all = np.concatenate(all_Xw)
@@ -1058,7 +1058,7 @@ def _run_window_analysis(eval_dir, cfg, model, device, detector,
     n_safe_w = int((yw_all < 0.5).sum())
     print(f"  Total windows: {len(yw_all)} (attack={n_attack_w}, safe={n_safe_w})")
 
-    # ── Collect raw model predictions (no EMA) ──────────────────────────────
+    # Collect raw model predictions (no EMA)
     model.eval()
     all_scores = []
     batch_size = 64
@@ -1071,7 +1071,7 @@ def _run_window_analysis(eval_dir, cfg, model, device, detector,
     y_true = (yw_all >= 0.5).astype(int)
     y_score = np.array(all_scores)
 
-    # ── Window-level metrics at selected threshold ───────────────────────────
+    # Window-level metrics at selected threshold
     from sklearn.metrics import (precision_recall_fscore_support,
                                  accuracy_score,
                                  precision_recall_curve,
@@ -1093,7 +1093,7 @@ def _run_window_analysis(eval_dir, cfg, model, device, detector,
     print(f"  F1 Score  : {f1:.4f}")
     print(f"  FPR       : {fpr_val:.2%}")
 
-    # ── Verbose per-video timeline (per-window decisions) ───────────────────
+    # Verbose per-video timeline (per-window decisions)
     # Mirrors the --eval-dir --verbose timeline but adapted for window-level
     # analysis: one row per window, columns drop EMA / persist (no smoothing
     # applied here) and instead show ground-truth and a result tag so FP and
@@ -1140,22 +1140,22 @@ def _run_window_analysis(eval_dir, cfg, model, device, detector,
                       f"{seg:<14}")
             print()
 
-    # ── Verbose per-video rate summary ───────────────────────────────────────
+    # Verbose per-video rate summary
     # Per-video table of detection rates:
-    #   seg3-push / silence-attack → true-positive rate (recall on the
-    #                                 attack-labelled windows)
-    #   seg1-pre / seg2-approach / safe → false-positive rate (safe windows
-    #                                     that crossed threshold)
+    # seg3-push / silence-attack -> true-positive rate (recall on the
+    # attack-labelled windows)
+    # seg1-pre / seg2-approach / safe -> false-positive rate (safe windows
+    # that crossed threshold)
     # Percentages are more actionable than raw FP/FN counts for identifying
     # which videos drive the aggregate metric.
     if verbose and len(all_meta) == len(y_true):
         from collections import defaultdict
 
         # per-video per-segment tally: {video: {segment: [n_windows, n_flagged,
-        #                                                 n_correct_label]}}
-        #   n_windows       — total windows in (video, segment)
-        #   n_flagged       — y_pred == 1 count
-        #   n_attack_label  — y_true == 1 count (for sanity / expected label)
+        # n_correct_label]}}
+        # n_windows       - total windows in (video, segment)
+        # n_flagged       - y_pred == 1 count
+        # n_attack_label  - y_true == 1 count (for sanity / expected label)
         per_vid = defaultdict(lambda: defaultdict(lambda: [0, 0, 0]))
         for k in range(len(all_meta)):
             vid, seg, _, _ = all_meta[k]
@@ -1177,14 +1177,14 @@ def _run_window_analysis(eval_dir, cfg, model, device, detector,
         print(f"\n--- Per-Video Window Rates @ threshold={early_thresh:.2f} ---")
         print(f"  seg3-push:       detection rate  (attack windows flagged)")
         if has_silence:
-            print(f"  silence-attack:  detection rate  (seg2-approach → attack)")
-            print(f"  silence-safe:    FP rate         (silence zone → safe)")
+            print(f"  silence-attack:  detection rate  (seg2-approach -> attack)")
+            print(f"  silence-safe:    FP rate         (silence zone -> safe)")
         print(f"  seg1-pre:        FP rate         (pre-stand safe windows flagged)")
         if not has_silence:
             print(f"  seg2-approach:   FP rate         (post-silence safe windows flagged)")
         print(f"  safe/*:          FP rate         (full safe video)")
 
-        # Header — include silence columns when relevant.
+        # Header - include silence columns when relevant.
         if has_silence:
             print(f"\n  {'video':<46}  {'seg1-pre (FP)':>18}  "
                   f"{'silence-safe (FP)':>22}  "
@@ -1198,7 +1198,7 @@ def _run_window_analysis(eval_dir, cfg, model, device, detector,
             print(f"  {'-' * 46}  {'-' * 18}  {'-' * 22}  {'-' * 22}")
 
         # Aggregates for summary line
-        agg = defaultdict(lambda: [0, 0])  # segment → [total, flagged]
+        agg = defaultdict(lambda: [0, 0])  # segment -> [total, flagged]
 
         for vid in sorted(per_vid.keys()):
             s1 = per_vid[vid].get("seg1-pre", [0, 0, 0])
@@ -1215,15 +1215,15 @@ def _run_window_analysis(eval_dir, cfg, model, device, detector,
             agg["silence-safe"][0]   += ss[0]; agg["silence-safe"][1]   += ss[1]
             agg["full"][0]           += sf[0]; agg["full"][1]           += sf[1]
 
-            # Safe videos go on their own row — use "full" column info in place
+            # Safe videos go on their own row - use "full" column info in place
             # of seg3.  For attack videos, seg1/seg2/seg3 columns are populated.
             if sf[0] > 0:
-                # safe video — print FP rate under a dedicated "full" column
+                # safe video - print FP rate under a dedicated "full" column
                 if has_silence:
-                    print(f"  {vid:<46}  {'—':>18}  {'—':>22}  "
-                          f"{'—':>22}  {_rate(sf[1], sf[0]):>22}  (safe)")
+                    print(f"  {vid:<46}  {'-':>18}  {'-':>22}  "
+                          f"{'-':>22}  {_rate(sf[1], sf[0]):>22}  (safe)")
                 else:
-                    print(f"  {vid:<46}  {'—':>18}  {'—':>22}  "
+                    print(f"  {vid:<46}  {'-':>18}  {'-':>22}  "
                           f"{_rate(sf[1], sf[0]):>22}  (safe)")
             else:
                 s1_str = _rate(s1[1], s1[0]) if s1[0] else "(no windows)"
@@ -1246,15 +1246,15 @@ def _run_window_analysis(eval_dir, cfg, model, device, detector,
             print(f"  {'-' * 46}  {'-' * 18}  {'-' * 22}  {'-' * 22}")
 
         total_s1 = _rate(agg['seg1-pre'][1], agg['seg1-pre'][0]) \
-                   if agg['seg1-pre'][0] else "—"
+                   if agg['seg1-pre'][0] else "-"
         total_s2 = _rate(agg['seg2-approach'][1], agg['seg2-approach'][0]) \
-                   if agg['seg2-approach'][0] else "—"
+                   if agg['seg2-approach'][0] else "-"
         total_s3 = _rate(agg['seg3-push'][1], agg['seg3-push'][0]) \
-                   if agg['seg3-push'][0] else "—"
+                   if agg['seg3-push'][0] else "-"
         total_sa = _rate(agg['silence-attack'][1], agg['silence-attack'][0]) \
-                   if agg['silence-attack'][0] else "—"
+                   if agg['silence-attack'][0] else "-"
         total_ss = _rate(agg['silence-safe'][1], agg['silence-safe'][0]) \
-                   if agg['silence-safe'][0] else "—"
+                   if agg['silence-safe'][0] else "-"
         if has_silence:
             print(f"  {'TOTAL (all attack videos)':<46}  "
                   f"{total_s1:>18}  {total_ss:>22}  {total_sa:>22}  "
@@ -1266,11 +1266,11 @@ def _run_window_analysis(eval_dir, cfg, model, device, detector,
             total_sf = _rate(agg['full'][1], agg['full'][0])
             if has_silence:
                 print(f"  {'TOTAL (all safe videos)':<46}  "
-                      f"{'—':>18}  {'—':>22}  {'—':>22}  "
+                      f"{'-':>18}  {'-':>22}  {'-':>22}  "
                       f"{total_sf:>22}")
             else:
                 print(f"  {'TOTAL (all safe videos)':<46}  "
-                      f"{'—':>18}  {'—':>22}  {total_sf:>22}")
+                      f"{'-':>18}  {'-':>22}  {total_sf:>22}")
 
         # Call out the videos with the worst push-phase detection (lowest recall)
         push_recalls = []
@@ -1286,7 +1286,7 @@ def _run_window_analysis(eval_dir, cfg, model, device, detector,
                 print(f"    {vid:<48}  {flagged:>3d}/{total:<3d}  "
                       f"({100.0 * rate:5.1f}%)")
 
-    # ── PR Curve ─────────────────────────────────────────────────────────────
+    # PR Curve
     try:
         import matplotlib
         matplotlib.use("Agg")
@@ -1314,7 +1314,7 @@ def _run_window_analysis(eval_dir, cfg, model, device, detector,
             fp_s = int(((yp == 1) & (y_true == 0)).sum())
             marker_metrics[early_thresh] = (p_s, r_s, f_s, fp_s / n_neg)
 
-        # --- Precision-Recall curve ---
+        # Precision-Recall curve
         prec_arr, rec_arr, pr_thresholds = precision_recall_curve(y_true, y_score)
         ap = average_precision_score(y_true, y_score)
 
@@ -1381,7 +1381,7 @@ def _run_window_analysis(eval_dir, cfg, model, device, detector,
                                         lw=0.5, alpha=0.4)
                         if (abs(dx) > 10 or abs(dy) > 10) else None)
 
-            tag = "★" if is_selected else " "
+            tag = "*" if is_selected else " "
             table_lines.append(
                 f"{tag} t={t:.2f}  P={p_m:.2f}  R={r_m:.2f}  "
                 f"F1={f_m:.2f}  FPR={fpr_m:>6.2%}")
@@ -1410,7 +1410,7 @@ def _run_window_analysis(eval_dir, cfg, model, device, detector,
         plt.close(fig)
         print(f"\n  PR curve saved to  : {pr_path}  (AP={ap:.3f})")
 
-        # --- ROC curve ---
+        # ROC curve
         fpr_arr, tpr_arr, roc_thresholds = roc_curve(y_true, y_score)
         roc_auc = auc(fpr_arr, tpr_arr)
 
@@ -1471,7 +1471,7 @@ def _run_window_analysis(eval_dir, cfg, model, device, detector,
                                         lw=0.5, alpha=0.4)
                         if (abs(dx) > 10 or abs(dy) > 10) else None)
 
-            tag = "★" if is_selected else " "
+            tag = "*" if is_selected else " "
             roc_table_lines.append(
                 f"{tag} t={t:.2f}  TPR={r_m:.2f}  FPR={fpr_m:>6.2%}  "
                 f"F1={f_m:.2f}")
@@ -1506,13 +1506,13 @@ def _run_window_analysis(eval_dir, cfg, model, device, detector,
         print(f"  {'-'*46}")
         for t in all_markers:
             p_m, r_m, f_m, fpr_m = marker_metrics[t]
-            note = " ★ selected" if abs(t - early_thresh) < 0.005 else ""
+            note = " * selected" if abs(t - early_thresh) < 0.005 else ""
             print(f"  {t:>6.2f}  {p_m:.3f}  {r_m:.3f}  {f_m:.3f}  {fpr_m:>6.2%}{note}")
 
     except ImportError as e:
         print(f"\n  Skipping PR/ROC curves: {e}")
 
-    # ── Feature Importance ───────────────────────────────────────────────────
+    # Feature Importance
     print("\n" + "=" * 80)
     print("COMPUTING FEATURE IMPORTANCE (Inference, no EMA)")
     print("=" * 80)
@@ -1552,9 +1552,9 @@ def evaluate_dir(eval_dir, verbose=False, debug=False, enable_pi=False,
 
     Dataset layout:
         eval_dir/
-            labels.json          — attack video labels
-            attack/              — attack .mp4 files
-            safe/                — (optional) safe .mp4 files
+            labels.json          - attack video labels
+            attack/              - attack .mp4 files
+            safe/                - (optional) safe .mp4 files
 
     labels.json schema (per entry):
         {
@@ -1568,28 +1568,28 @@ def evaluate_dir(eval_dir, verbose=False, debug=False, enable_pi=False,
         }
 
     Detection zone classification (default):
-        before first_stand_after_sit                         → False Positive
-        between first_stand_after_sit and last_backward_frame → Silenced
-        between last_backward_frame and push_start_frame     → False Positive
-        between push_start_frame and contact_frame          → Early Detection
-            lead_time = contact_frame − detection_frame
-        after contact_frame                                 → Late Detection
+        before first_stand_after_sit                         -> False Positive
+        between first_stand_after_sit and last_backward_frame -> Silenced
+        between last_backward_frame and push_start_frame     -> False Positive
+        between push_start_frame and contact_frame          -> Early Detection
+            lead_time = contact_frame - detection_frame
+        after contact_frame                                 -> Late Detection
 
     Detection zone classification (--split-silence):
-        before first_stand_after_sit                         → False Positive
-        between first_stand_after_sit and last_backward_frame → False Positive
-        between last_backward_frame and push_start_frame     → Early Detection
-        between push_start_frame and contact_frame          → Early Detection
-        after contact_frame                                 → Late Detection
+        before first_stand_after_sit                         -> False Positive
+        between first_stand_after_sit and last_backward_frame -> False Positive
+        between last_backward_frame and push_start_frame     -> Early Detection
+        between push_start_frame and contact_frame          -> Early Detection
+        after contact_frame                                 -> Late Detection
 
     Args:
         eval_dir: directory containing attack/, labels.json, optionally safe/.
         verbose: dump compact frame-by-frame timeline table per video.
         debug: print full per-frame gate diagnostics (mirrors run() console
-            output); captured by TeeLogger → log file.
+            output); captured by TeeLogger -> log file.
         enable_pi: use Config.for_pi() instead of Config.for_pc().
     """
-    # ── logging ───────────────────────────────────────────────────────────────
+    # logging
     os.makedirs("outputs/logs", exist_ok=True)
     ts       = datetime.now().strftime("%Y%m%d_%H%M%S")
     log_path = os.path.join("outputs/logs", f"inference_{ts}.log")
@@ -1654,9 +1654,9 @@ def evaluate_dir(eval_dir, verbose=False, debug=False, enable_pi=False,
         detector.release()
         return
 
-    # ── Live detection mode (default) ──────────────────────────────────────
+    # Live detection mode (default)
 
-    # ── attack videos ─────────────────────────────────────────────────────────
+    # attack videos
     print("\n--- Processing Attack Videos ---")
     if not os.path.exists(attack_dir_path):
         print(f"Warning: {attack_dir_path} not found")
@@ -1695,9 +1695,9 @@ def evaluate_dir(eval_dir, verbose=False, debug=False, enable_pi=False,
             if verbose and result["timeline"]:
                 _print_verbose_timeline(video_name, result["timeline"])
 
-    # ── safe videos (optional) ────────────────────────────────────────────────
+    # safe videos (optional)
     if not os.path.exists(safe_dir_path):
-        print("\n(no safe/ directory found — skipping safe video evaluation)")
+        print("\n(no safe/ directory found - skipping safe video evaluation)")
     else:
         for video_file in sorted(os.listdir(safe_dir_path)):
             if not video_file.lower().endswith(".mp4"):
@@ -1732,15 +1732,15 @@ def evaluate_dir(eval_dir, verbose=False, debug=False, enable_pi=False,
             if verbose and result["timeline"]:
                 _print_verbose_timeline(video_file, result["timeline"])
 
-    # ── attack summary (zone-based classification) ──────────────────────────
+    # attack summary (zone-based classification)
     print("\n" + "=" * 80)
-    print("ATTACK VIDEOS — Zone-Based Detection Analysis")
+    print("ATTACK VIDEOS - Zone-Based Detection Analysis")
     print("=" * 80)
     if split_silence:
         print("Zones (--split-silence):")
         print("  FP       = [first_stand, first_stand_after_sit)")
-        print("           OR [first_stand_after_sit, last_backward_frame]  (silence zone → safe)")
-        print("  EARLY    = (last_backward_frame, contact_frame]  (seg2-approach + push → attack)")
+        print("           OR [first_stand_after_sit, last_backward_frame]  (silence zone -> safe)")
+        print("  EARLY    = (last_backward_frame, contact_frame]  (seg2-approach + push -> attack)")
         print("  LATE     = after contact_frame")
     else:
         print("Zones:  FP = before first_stand_after_sit OR between last_backward_frame")
@@ -1755,8 +1755,8 @@ def evaluate_dir(eval_dir, verbose=False, debug=False, enable_pi=False,
     silenced_only      = []   # all detections fell in the silenced zone
     false_positives_attacks = []   # first non-silenced detection is FP
     missed_attacks     = []   # no detection at all
-    lead_times         = []   # contact_frame − detection_frame (early only)
-    late_delays        = []   # detection_frame − contact_frame (late only)
+    lead_times         = []   # contact_frame - detection_frame (early only)
+    late_delays        = []   # detection_frame - contact_frame (late only)
     videos_with_silenced = []  # videos that had any silenced detections
 
     for r in attack_results:
@@ -1775,7 +1775,7 @@ def evaluate_dir(eval_dir, verbose=False, debug=False, enable_pi=False,
             continue
 
         if split_silence:
-            # --split-silence: 1st silence zone → FP, 2nd silence zone → EARLY.
+            # split-silence: 1st silence zone -> FP, 2nd silence zone -> EARLY.
             # No silenced zone to skip; take the very first threat frame.
             first_actionable = all_threats[0] if all_threats else -1
             sil_suffix = ""
@@ -1788,21 +1788,21 @@ def evaluate_dir(eval_dir, verbose=False, debug=False, enable_pi=False,
                 continue
 
             if det < first_stand_after_sit:
-                # seg1-pre → FP
+                # seg1-pre -> FP
                 false_positives_attacks.append(r)
                 print(f"{r['video_name']:50s} | FP @ {det:5d} "
                       f"(seg1-pre, before stand@{first_stand_after_sit})  "
                       f"max_ema={r['max_hazard_ema']:.3f}")
 
             elif det <= last_backward_frame:
-                # 1st silence zone → safe → FP
+                # 1st silence zone -> safe -> FP
                 false_positives_attacks.append(r)
                 print(f"{r['video_name']:50s} | FP @ {det:5d} "
-                      f"(silence-safe [{first_stand_after_sit}–{last_backward_frame}])  "
+                      f"(silence-safe [{first_stand_after_sit}-{last_backward_frame}])  "
                       f"max_ema={r['max_hazard_ema']:.3f}")
 
             elif det <= contact_frame:
-                # 2nd silence zone (seg2-approach) or push phase → EARLY
+                # 2nd silence zone (seg2-approach) or push phase -> EARLY
                 lead_time = contact_frame - det
                 lead_times.append(lead_time)
                 early_detections.append(r)
@@ -1816,7 +1816,7 @@ def evaluate_dir(eval_dir, verbose=False, debug=False, enable_pi=False,
                       f"max_ema={r['max_hazard_ema']:.3f}")
 
             else:
-                # After contact_frame → LATE
+                # After contact_frame -> LATE
                 late_detections.append(r)
                 delay = det - contact_frame
                 late_delays.append(delay)
@@ -1848,7 +1848,7 @@ def evaluate_dir(eval_dir, verbose=False, debug=False, enable_pi=False,
                     first_actionable = tf
                     break
                 elif tf <= last_backward_frame:
-                    continue   # silenced zone — skip
+                    continue   # silenced zone - skip
                 else:
                     first_actionable = tf
                     break
@@ -1857,7 +1857,7 @@ def evaluate_dir(eval_dir, verbose=False, debug=False, enable_pi=False,
                 silenced_only.append(r)
                 print(f"{r['video_name']:50s} | SILENCED "
                       f"(all {n_silenced} detections in silenced zone "
-                      f"[{first_stand_after_sit}–{last_backward_frame}])  "
+                      f"[{first_stand_after_sit}-{last_backward_frame}])  "
                       f"max_ema={r['max_hazard_ema']:.3f}"
                       f"{sil_suffix}")
                 continue
@@ -1903,7 +1903,7 @@ def evaluate_dir(eval_dir, verbose=False, debug=False, enable_pi=False,
                       f"max_ema={r['max_hazard_ema']:.3f}"
                       f"{sil_suffix}")
 
-    # ── attack statistics ──────────────────────────────────────────────────
+    # attack statistics
     n_total = len(attack_results)
     n_early = len(early_detections)
     n_late  = len(late_detections)
@@ -1919,7 +1919,7 @@ def evaluate_dir(eval_dir, verbose=False, debug=False, enable_pi=False,
         print(f"Silenced (only)  : {n_sil:3d}/{n_total}  ({n_sil/max(1,n_total):.1%})")
     print(f"Missed           : {n_miss:3d}/{n_total}  ({n_miss/max(1,n_total):.1%})")
 
-    # Silenced detections summary (per-video) — only in default mode
+    # Silenced detections summary (per-video) - only in default mode
     if not split_silence:
         n_vids_with_sil = len(videos_with_silenced)
         total_sil_frames = sum(cnt for _, cnt, _ in videos_with_silenced)
@@ -1958,7 +1958,7 @@ def evaluate_dir(eval_dir, verbose=False, debug=False, enable_pi=False,
               f"({np.min(all_offsets)/cfg.input_fps:+.2f}s)")
         print(f"  (positive = before contact, negative = after contact)")
 
-    # ── safe video summary ────────────────────────────────────────────────────
+    # safe video summary
     print("\n" + "=" * 80)
     print("SAFE VIDEOS")
     print("=" * 80)
@@ -1986,7 +1986,7 @@ def evaluate_dir(eval_dir, verbose=False, debug=False, enable_pi=False,
     else:
         print("(no safe videos found)")
 
-    # ── overall summary ───────────────────────────────────────────────────────
+    # overall summary
     print("\n" + "=" * 80)
     print("OVERALL SUMMARY")
     print("=" * 80)
@@ -2033,7 +2033,7 @@ def _print_verbose_timeline(video_name, timeline):
     print()
 
 
-# ── backwards-compatible entry point ─────────────────────────────────────────
+# backwards-compatible entry point
 
 def main(video_path: str):
     """
@@ -2043,11 +2043,11 @@ def main(video_path: str):
     run(video_path, display=False, record=False)
 
 
-# ── CLI ───────────────────────────────────────────────────────────────────────
+# CLI
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Hazard detection — video file or live camera")
+        description="Hazard detection - video file or live camera")
 
     parser.add_argument(
         "source", nargs="?", default="0",
@@ -2098,22 +2098,22 @@ if __name__ == "__main__":
              "log_scale, persist) for every video processed.  "
              "With --eval-dir --analyze: list every false-positive and "
              "false-negative window with its source video, segment, and "
-             "frame range — useful for locating failure modes in the footage.")
+             "frame range - useful for locating failure modes in the footage.")
 
     parser.add_argument(
         "--debug", action="store_true",
         help="With --eval-dir: print full per-frame diagnostics for every "
-             "video (mirrors the live infer.py console output — raw, ema, level, "
+             "video (mirrors the live infer.py console output - raw, ema, level, "
              "thf, ls, ok, persist, dbg). "
              "Also flags det=MISS frames where pose detection yields no bbox. "
-             "Output is captured by the TeeLogger → inference_<timestamp>.log.")
+             "Output is captured by the TeeLogger -> inference_<timestamp>.log.")
 
     parser.add_argument(
         "--simulate-live", action="store_true",
         help="Pace frame delivery to each video's native FPS and use actual "
              "wall-clock dt for feature derivatives, making pre-recorded videos "
              "behave identically to a live camera feed.  Works for both single-video "
-             "inference and --eval-dir batch evaluation — use on the Pi5 to obtain "
+             "inference and --eval-dir batch evaluation - use on the Pi5 to obtain "
              "a detection-rate / FP-rate report that reflects real-time performance "
              "without needing a live camera.  Has no effect on camera (int) sources.")
 
@@ -2135,7 +2135,7 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    # ── eval-dir mode: evaluate a pre-recorded dataset ────────────────────────
+    # eval-dir mode: evaluate a pre-recorded dataset
     if args.eval_dir is not None:
         # evaluate_dir() sets up its own TeeLogger internally
         evaluate_dir(args.eval_dir,
@@ -2147,8 +2147,8 @@ if __name__ == "__main__":
                      split_silence=args.split_silence)
         sys.exit(0)
 
-    # ── live / file inference mode ────────────────────────────────────────────
-    # "0", "1", … → int (camera device index); anything else → file path
+    # live / file inference mode
+    # "0", "1", ... -> int (camera device index); anything else -> file path
     try:
         source = int(args.source)
     except ValueError:

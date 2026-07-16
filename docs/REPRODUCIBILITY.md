@@ -29,12 +29,12 @@ idx = np.random.choice(len(xs), size=(200,), replace=False)
 ```
 
 **Impact**:
-- Different random points → different optical flow vectors → different flow features → different predictions
+- Different random points -> different optical flow vectors -> different flow features -> different predictions
 - This happens during **feature extraction**, not just training
 - Even with the same trained model, evaluation gives different results
 
 **Why it matters**:
-- Optical flow and interaction features dominate importance — `expansion_proximity` (11.1%), `translation_lower` (9.2%), `translation_torso` (8.3%)
+- Optical flow and interaction features dominate importance - `expansion_proximity` (11.1%), `translation_lower` (9.2%), `translation_torso` (8.3%)
 - Small variations in flow sampling can significantly affect predictions
 
 ### 2. **PyTorch Non-Determinism**
@@ -61,24 +61,24 @@ We created `src/utils.py` with a centralized seeding function:
 
 ```python
 def set_seed(seed: int = 42, deterministic: bool = True):
-    """Set random seeds for reproducibility across all libraries."""
-    # Python built-in random
-    random.seed(seed)
+ """Set random seeds for reproducibility across all libraries."""
+ # Python built-in random
+ random.seed(seed)
 
-    # NumPy
-    np.random.seed(seed)
+ # NumPy
+ np.random.seed(seed)
 
-    # PyTorch
-    torch.manual_seed(seed)
+ # PyTorch
+ torch.manual_seed(seed)
 
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed(seed)
-        torch.cuda.manual_seed_all(seed)
+ if torch.cuda.is_available():
+ torch.cuda.manual_seed(seed)
+ torch.cuda.manual_seed_all(seed)
 
-        if deterministic:
-            # Make CUDA operations deterministic
-            torch.backends.cudnn.deterministic = True
-            torch.backends.cudnn.benchmark = False
+ if deterministic:
+ # Make CUDA operations deterministic
+ torch.backends.cudnn.deterministic = True
+ torch.backends.cudnn.benchmark = False
 ```
 
 ### Critical Timing
@@ -86,17 +86,17 @@ def set_seed(seed: int = 42, deterministic: bool = True):
 **IMPORTANT**: Seeds must be set **BEFORE** any feature extraction or model operations:
 
 ```python
-# ✅ CORRECT: Set seed FIRST
+# CORRECT: Set seed FIRST
 set_seed(42, deterministic=True)
 cfg = Config()
 detector = PoseDetector()
-video_data = build_dataset_per_video(detector, cfg)  # Uses random sampling
+video_data = build_dataset_per_video(detector, cfg) # Uses random sampling
 
-# ❌ WRONG: Set seed AFTER imports/operations
+# WRONG: Set seed AFTER imports/operations
 cfg = Config()
 detector = PoseDetector()
-video_data = build_dataset_per_video(detector, cfg)  # Random sampling NOT seeded
-set_seed(42, deterministic=True)  # Too late!
+video_data = build_dataset_per_video(detector, cfg) # Random sampling NOT seeded
+set_seed(42, deterministic=True) # Too late!
 ```
 
 ### Updated Scripts
@@ -104,39 +104,39 @@ set_seed(42, deterministic=True)  # Too late!
 All three main scripts now use proper seeding:
 
 1. **src/train.py**:
-   ```python
-   from .utils import set_seed, print_seed_info
+ ```python
+ from .utils import set_seed, print_seed_info
 
-   # Set seed BEFORE building dataset
-   set_seed(seed=42, deterministic=True)
-   print_seed_info(seed=42, deterministic=True)
+ # Set seed BEFORE building dataset
+ set_seed(seed=42, deterministic=True)
+ print_seed_info(seed=42, deterministic=True)
 
-   # Now build dataset (uses random flow sampling)
-   video_data = build_dataset_per_video(detector, cfg)
-   ```
+ # Now build dataset (uses random flow sampling)
+ video_data = build_dataset_per_video(detector, cfg)
+ ```
 
 2. **src/evaluate.py**:
-   ```python
-   from .utils import set_seed, print_seed_info
+ ```python
+ from .utils import set_seed, print_seed_info
 
-   # Set seed BEFORE processing videos
-   set_seed(seed=42, deterministic=True)
-   print_seed_info(seed=42, deterministic=True)
+ # Set seed BEFORE processing videos
+ set_seed(seed=42, deterministic=True)
+ print_seed_info(seed=42, deterministic=True)
 
-   # Now evaluate videos (uses random flow sampling)
-   result = evaluate_video(video_path, ...)
-   ```
+ # Now evaluate videos (uses random flow sampling)
+ result = evaluate_video(video_path, ...)
+ ```
 
 3. **src/infer.py**:
-   ```python
-   from .utils import set_seed
+ ```python
+ from .utils import set_seed
 
-   # Set seed BEFORE inference
-   set_seed(seed=42, deterministic=True)
+ # Set seed BEFORE inference
+ set_seed(seed=42, deterministic=True)
 
-   # Now process video (uses random flow sampling)
-   hazard = model(input)
-   ```
+ # Now process video (uses random flow sampling)
+ hazard = model(input)
+ ```
 
 ## Verification
 
@@ -165,7 +165,7 @@ grep "h15.mp4" eval_run2.log
 
 # Should show IDENTICAL max_hazard values
 # Example:
-# h15.mp4 | max_hazard=0.856  (both runs)
+# h15.mp4 | max_hazard=0.856 (both runs)
 ```
 
 ### Training Reproducibility
@@ -187,8 +187,8 @@ import torch
 w1 = torch.load('outputs/checkpoints/model_run1.pt')
 w2 = torch.load('outputs/checkpoints/model_run2.pt')
 for key in w1.keys():
-    assert torch.allclose(w1[key], w2[key], atol=1e-6), f'{key} differs'
-print('✓ Models are identical')
+ assert torch.allclose(w1[key], w2[key], atol=1e-6), f'{key} differs'
+print('[x] Models are identical')
 "
 ```
 
@@ -197,14 +197,14 @@ print('✓ Models are identical')
 ### Deterministic Mode Trade-offs
 
 **Advantages**:
-- ✅ Fully reproducible results
-- ✅ Easier debugging
-- ✅ Consistent evaluation metrics
-- ✅ Comparable experiments
+- Fully reproducible results
+- Easier debugging
+- Consistent evaluation metrics
+- Comparable experiments
 
 **Disadvantages**:
-- ❌ ~5-10% slower training (CUDA determinism)
-- ❌ ~2-5% slower inference (CUDA determinism)
+- ~5-10% slower training (CUDA determinism)
+- ~2-5% slower inference (CUDA determinism)
 
 ### Disabling Deterministic Mode (Not Recommended)
 
@@ -239,7 +239,7 @@ python -c "import torch; print(torch.__version__)"
 python -c "import numpy; print(numpy.__version__)"
 
 # 3. Force CPU for exact reproducibility
-device = torch.device("cpu")  # Instead of cuda
+device = torch.device("cpu") # Instead of cuda
 
 # 4. Check for external randomness
 # Search for any time-based operations or external random sources
@@ -258,7 +258,7 @@ device = torch.device("cpu")
 # Document the variation in your results
 
 # Option 3: Use a specific PyTorch version known to be deterministic
-pip install torch==2.0.1  # Example
+pip install torch==2.0.1 # Example
 ```
 
 ### Issue: Different Results Between CPU and GPU
@@ -268,7 +268,7 @@ This is **expected**. CPU and GPU use different numerical precision and algorith
 **Solution**:
 ```python
 # Pick one device and stick with it for all experiments
-device = torch.device("cpu")  # OR torch.device("cuda")
+device = torch.device("cpu") # OR torch.device("cuda")
 
 # Document which device was used in your results
 ```
@@ -279,14 +279,14 @@ device = torch.device("cpu")  # OR torch.device("cuda")
 
 ```python
 def main():
-    # FIRST THING: Set seed
-    set_seed(42, deterministic=True)
+ # FIRST THING: Set seed
+ set_seed(42, deterministic=True)
 
-    # THEN: Do everything else
-    cfg = Config()
-    detector = PoseDetector()
-    model = load_model()
-    ...
+ # THEN: Do everything else
+ cfg = Config()
+ detector = PoseDetector()
+ model = load_model()
+ ...
 ```
 
 ### 2. Document Your Environment
@@ -326,11 +326,11 @@ print(f"PyTorch random state: {torch.initial_seed()}")
 
 ### What Changed
 
-1. ✅ Created `src/utils.py` with centralized seeding
-2. ✅ Updated `src/train.py` to set seed before dataset building
-3. ✅ Updated `src/evaluate.py` to set seed before video processing
-4. ✅ Updated `src/infer.py` to set seed before inference
-5. ✅ Enabled CUDA deterministic mode by default
+1. Created `src/utils.py` with centralized seeding
+2. Updated `src/train.py` to set seed before dataset building
+3. Updated `src/evaluate.py` to set seed before video processing
+4. Updated `src/infer.py` to set seed before inference
+5. Enabled CUDA deterministic mode by default
 
 ### Expected Behavior
 

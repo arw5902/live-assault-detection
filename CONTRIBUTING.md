@@ -28,41 +28,41 @@ This project adheres to a code of conduct that all contributors are expected to 
 
 1. **Fork the repository** on GitHub
 2. **Clone your fork** locally:
-   ```bash
-   git clone https://github.com/arw5902/live-assault-detection.git
-   cd live-assault-detection
-   ```
+ ```bash
+ git clone https://github.com/arw5902/live-assault-detection.git
+ cd live-assault-detection
+ ```
 
 3. **Set up remote upstream**:
-   ```bash
-   git remote add upstream https://github.com/originalrepo/live-assault-detection.git
-   ```
+ ```bash
+ git remote add upstream https://github.com/originalrepo/live-assault-detection.git
+ ```
 
 4. **Create a branch** for your changes:
-   ```bash
-   git checkout -b feature/your-feature-name
-   ```
+ ```bash
+ git checkout -b feature/your-feature-name
+ ```
 
 ## Development Setup
 
 ### Environment Setup
 
 1. Create and activate virtual environment:
-   ```bash
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   ```
+ ```bash
+ python -m venv venv
+ source venv/bin/activate # On Windows: venv\Scripts\activate
+ ```
 
 2. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
+ ```bash
+ pip install -r requirements.txt
+ ```
 
 3. Download models:
-   ```bash
-   mkdir -p models
-   wget https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8m-pose.pt -O models/yolov8m-pose.pt
-   ```
+ ```bash
+ mkdir -p models
+ wget https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8m-pose.pt -O models/yolov8m-pose.pt
+ ```
 
 ### Verify Installation
 
@@ -111,31 +111,31 @@ We welcome the following types of contributions:
 Example:
 ```python
 def extract_features(
-    frame: np.ndarray,
-    detection: Dict[str, Any],
-    config: Config
+ frame: np.ndarray,
+ detection: Dict[str, Any],
+ config: Config
 ) -> Tuple[np.ndarray, np.ndarray]:
-    """
-    Extract features from frame and pose detection.
+ """
+ Extract features from frame and pose detection.
 
-    Args:
-        frame: Input frame (BGR format)
-        detection: Pose detection result
-        config: Configuration object
+ Args:
+ frame: Input frame (BGR format)
+ detection: Pose detection result
+ config: Configuration object
 
-    Returns:
-        features: Feature vector (59-dim)
-        mask: Validity mask (59-dim)
-    """
-    # Implementation
-    ...
+ Returns:
+ features: Feature vector (59-dim)
+ mask: Validity mask (59-dim)
+ """
+ # Implementation
+ ...
 ```
 
 ### Code Organization
 
 - **One class per file** (unless closely related)
 - **Group related functions** in modules
-- **Import order**: stdlib → third-party → local
+- **Import order**: stdlib -> third-party -> local
 - **Avoid circular imports**
 
 ### Documentation
@@ -148,26 +148,26 @@ def extract_features(
 Example docstring:
 ```python
 def focal_loss(pred: torch.Tensor, target: torch.Tensor, gamma: float = 2.0, alpha: float = 0.75) -> torch.Tensor:
-    """
-    Compute Focal Loss for binary classification.
+ """
+ Compute Focal Loss for binary classification.
 
-    Focal Loss down-weights easy examples and focuses on hard examples,
-    making it effective for class-imbalanced datasets.
+ Focal Loss down-weights easy examples and focuses on hard examples,
+ making it effective for class-imbalanced datasets.
 
-    Args:
-        pred: Predicted probabilities [batch_size] in range [0, 1]
-        target: Ground truth binary labels [batch_size] in {0, 1}
-        gamma: Focusing parameter (default: 2.0). Higher values increase
-            focus on hard examples.
-        alpha: Weighting factor for positive class (default: 0.75)
+ Args:
+ pred: Predicted probabilities [batch_size] in range [0, 1]
+ target: Ground truth binary labels [batch_size] in {0, 1}
+ gamma: Focusing parameter (default: 2.0). Higher values increase
+ focus on hard examples.
+ alpha: Weighting factor for positive class (default: 0.75)
 
-    Returns:
-        Scalar loss value
+ Returns:
+ Scalar loss value
 
-    References:
-        Lin et al. "Focal Loss for Dense Object Detection" (ICCV 2017)
-    """
-    ...
+ References:
+ Lin et al. "Focal Loss for Dense Object Detection" (ICCV 2017)
+ """
+ ...
 ```
 
 ## Testing
@@ -196,17 +196,17 @@ pytest --cov=src tests/
 Example test:
 ```python
 def test_windowize_short_sequence():
-    """Test windowize with sequence shorter than window length."""
-    X = np.random.randn(3, 59)  # Only 3 frames
-    M = np.ones_like(X)
-    y = np.array([0, 0, 1])
+ """Test windowize with sequence shorter than window length."""
+ X = np.random.randn(3, 59) # Only 3 frames
+ M = np.ones_like(X)
+ y = np.array([0, 0, 1])
 
-    Xw, Mw, yw = windowize(X, M, y, window_len=5, stride=1)
+ Xw, Mw, yw = windowize(X, M, y, window_len=5, stride=1)
 
-    # Should return empty arrays
-    assert Xw.shape[0] == 0
-    assert Mw.shape[0] == 0
-    assert yw.shape[0] == 0
+ # Should return empty arrays
+ assert Xw.shape[0] == 0
+ assert Mw.shape[0] == 0
+ assert yw.shape[0] == 0
 ```
 
 ## Submitting Changes
@@ -248,12 +248,12 @@ Describe testing performed
 Use clear, descriptive commit messages:
 
 ```
-✅ Good:
+ Good:
 - "Add focal loss implementation for class imbalance"
 - "Fix carry-forward imputation for missing keypoints"
 - "Improve video-level train/val split algorithm"
 
-❌ Bad:
+ Bad:
 - "Update code"
 - "Fix bug"
 - "Changes"
@@ -277,9 +277,9 @@ To request a new feature:
 1. **Check existing issues** to avoid duplicates
 2. **Create a new issue** with label `enhancement`
 3. **Describe the feature** clearly:
-   - What problem does it solve?
-   - What is the expected behavior?
-   - Are there any alternatives?
+ - What problem does it solve?
+ - What is the expected behavior?
+ - Are there any alternatives?
 4. **Discuss the approach** before implementing
 
 ## Bug Reports
@@ -289,11 +289,11 @@ To report a bug:
 1. **Check existing issues** to avoid duplicates
 2. **Create a new issue** with label `bug`
 3. **Provide details**:
-   - Description of the bug
-   - Steps to reproduce
-   - Expected vs actual behavior
-   - System information (OS, Python version, etc.)
-   - Error messages and stack traces
+ - Description of the bug
+ - Steps to reproduce
+ - Expected vs actual behavior
+ - System information (OS, Python version, etc.)
+ - Error messages and stack traces
 4. **Minimal reproducible example** if possible
 
 ### Bug Report Template
@@ -366,4 +366,4 @@ By contributing, you agree that your contributions will be licensed under the sa
 
 ---
 
-Thank you for contributing! 🎉
+Thank you for contributing!

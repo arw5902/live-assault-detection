@@ -35,7 +35,7 @@ def extract_sequences(video_path: str, label_mode: str, detector, cfg) -> Tuple[
     for _, frame in iter_video_frames(video_path, cfg.frame_stride):
         det = detector.infer(frame)
         if det is None:
-            # skip — keeps windows contiguous over remaining timesteps
+            # skip - keeps windows contiguous over remaining timesteps
             continue
 
         bbox, track_age, lost = tracker.update(det["bbox"])
@@ -76,7 +76,7 @@ def extract_sequences(video_path: str, label_mode: str, detector, cfg) -> Tuple[
         d2[2:] = (d1[2:] - d1[1:-1]) / dt
     X[:, 10] = d1
     X[:, 11] = d2
-    # Update masks: frame 0 has no prior → dlog_area_dt invalid; frames 0-1 → d2 invalid
+    # Update masks: frame 0 has no prior -> dlog_area_dt invalid; frames 0-1 -> d2 invalid
     if len(log_area) >= 2:
         M[1:, 10] = 1.0
         M[0, 10] = 0.0
@@ -114,14 +114,14 @@ def extract_sequences(video_path: str, label_mode: str, detector, cfg) -> Tuple[
 
     # Compute dlog_scale_dt from pose-derived log_scale at index 47
     # log_scale is derived from torso height (mid-shoulder to mid-hip) with reliability gating.
-    # Its temporal derivative measures the rate of apparent size growth — invariant to person
+    # Its temporal derivative measures the rate of apparent size growth - invariant to person
     # physical size because it uses rate of change, not absolute size.
     log_scale = X[:, 47]
     dlog_scale_dt = np.zeros_like(log_scale)
     if len(log_scale) >= 2:
         dlog_scale_dt[1:] = (log_scale[1:] - log_scale[:-1]) / dt
 
-    # ── derivatives: wrist_y_rel (50), ankle_spread (52), nose_y_rel (54) ──
+    # derivatives: wrist_y_rel (50), ankle_spread (52), nose_y_rel (54)
     # Pattern: raw value at even index, derivative at odd index.
     # Derivative valid only when both current and previous raw values are valid.
     for raw_idx, deriv_idx in [(49, 50), (51, 52), (53, 54)]:
@@ -136,7 +136,7 @@ def extract_sequences(video_path: str, label_mode: str, detector, cfg) -> Tuple[
         X[:, deriv_idx] = d_raw
         M[:, deriv_idx] = d_mask
 
-    # Batched mirror of features.py:add_interaction_features — see that function
+    # Batched mirror of features.py:add_interaction_features - see that function
     # for the rationale (proximity-gated motion, scale_for_weight fallback, etc.).
     trans_signed_torso = X[:, 32]
     divergence_torso = X[:, 34]
@@ -166,7 +166,7 @@ def extract_sequences(video_path: str, label_mode: str, detector, cfg) -> Tuple[
     if label_mode == "safe":
         y = np.zeros((X.shape[0],), dtype=np.float32)
     else:
-        # Attack videos are trimmed to start from onset — all frames are attack
+        # Attack videos are trimmed to start from onset - all frames are attack
         y = np.ones((X.shape[0],), dtype=np.float32)
 
     return X, M, y

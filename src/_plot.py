@@ -53,7 +53,7 @@ def plot_pr_and_roc(y_true, y_score, selected_threshold, model_type,
     """
     Render PR + ROC curves and print a threshold-comparison table.
 
-    Raises ImportError if matplotlib isn't installed — caller decides whether
+    Raises ImportError if matplotlib isn't installed - caller decides whether
     to swallow it.
     """
     import matplotlib
@@ -71,7 +71,7 @@ def plot_pr_and_roc(y_true, y_score, selected_threshold, model_type,
         extra, _ = _marker_metrics(y_true, y_score, [selected_threshold])
         marker_m[selected_threshold] = extra[selected_threshold]
 
-    # ── PR curve ────────────────────────────────────────────────────────────
+    # PR curve
     prec_arr, rec_arr, _ = precision_recall_curve(y_true, y_score)
     ap = average_precision_score(y_true, y_score)
 
@@ -116,7 +116,7 @@ def plot_pr_and_roc(y_true, y_score, selected_threshold, model_type,
                     arrowprops=dict(arrowstyle='-', color=color,
                                     lw=0.5, alpha=0.4)
                     if (abs(dx) > 10 or abs(dy) > 10) else None)
-        tag = "★" if is_sel else " "
+        tag = "*" if is_sel else " "
         table_lines.append(
             f"{tag} t={t:.2f}  P={p_m:.2f}  R={r_m:.2f}  "
             f"F1={f_m:.2f}  FPR={fpr_m:>6.2%}")
@@ -144,7 +144,7 @@ def plot_pr_and_roc(y_true, y_score, selected_threshold, model_type,
     plt.close(fig)
     print(f"  PR curve saved to  : {pr_path}  (AP={ap:.3f})")
 
-    # ── ROC curve ───────────────────────────────────────────────────────────
+    # ROC curve
     fpr_arr, tpr_arr, roc_thresh = roc_curve(y_true, y_score)
     roc_auc = auc(fpr_arr, tpr_arr)
 
@@ -184,7 +184,7 @@ def plot_pr_and_roc(y_true, y_score, selected_threshold, model_type,
                     arrowprops=dict(arrowstyle='-', color=color,
                                     lw=0.5, alpha=0.4)
                     if (abs(dx) > 10 or abs(dy) > 10) else None)
-        tag = "★" if is_sel else " "
+        tag = "*" if is_sel else " "
         roc_table_lines.append(
             f"{tag} t={t:.2f}  TPR={r_m:.2f}  FPR={fpr_m:>6.2%}  F1={f_m:.2f}")
 
@@ -210,11 +210,11 @@ def plot_pr_and_roc(y_true, y_score, selected_threshold, model_type,
     plt.close(fig)
     print(f"  ROC curve saved to : {roc_path}  (AUC={roc_auc:.3f})")
 
-    # ── Threshold comparison table ──────────────────────────────────────────
+    # Threshold comparison table
     print(f"\n  Threshold comparison (n_neg={n_neg}):")
     print(f"  {'thresh':>6}  {'Prec':>5}  {'Rec':>5}  {'F1':>5}  {'FP%':>6}  note")
     print(f"  {'-'*46}")
     for t in sorted(marker_m.keys()):
         p_m, r_m, f_m, fpr_m = marker_m[t]
-        note = "★ selected" if abs(t - selected_threshold) < 0.005 else ""
+        note = "* selected" if abs(t - selected_threshold) < 0.005 else ""
         print(f"  {t:>6.2f}  {p_m:>5.3f}  {r_m:>5.3f}  {f_m:>5.3f}  {fpr_m:>6.2%}  {note}")

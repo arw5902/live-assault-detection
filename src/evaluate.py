@@ -70,7 +70,7 @@ def evaluate_video(video_path, ground_truth, model, detector, cfg, device, thres
 
         # Resize to training resolution so pixel-magnitude features (log_scale,
         # log_area, flow magnitudes) match the scale the model was trained on.
-        # Mirrors the resize added to infer.py — must be kept in sync.
+        # Mirrors the resize added to infer.py - must be kept in sync.
         if frame.shape[1] != cfg.infer_w or frame.shape[0] != cfg.infer_h:
             frame = cv2.resize(frame, (cfg.infer_w, cfg.infer_h))
 
@@ -86,7 +86,7 @@ def evaluate_video(video_path, ground_truth, model, detector, cfg, device, thres
         prev_bbox = bbox
 
         # Compute temporal derivatives (dlog_area_dt, d2log_area_dt2, wrist
-        # vel/accel, dlog_scale_dt) — shared implementation prevents desync.
+        # vel/accel, dlog_scale_dt) - shared implementation prevents desync.
         dlog_scale_dt = deriv.update(x, m, dt)
 
         # Add interaction features (approach_rate uses dlog_scale_dt + trans_signed_torso)
@@ -100,7 +100,7 @@ def evaluate_video(video_path, ground_truth, model, detector, cfg, device, thres
             with torch.no_grad():
                 hazard = float(model(inp).item())
 
-            # Distance gate removed — mirrors infer.py (torso_height_frac kept for diagnostics only).
+            # Distance gate removed - mirrors infer.py (torso_height_frac kept for diagnostics only).
             torso_height_frac = compute_torso_height_frac(
                 det["kps"].astype(np.float32), frame.shape[0], cfg.kp_conf_thresh, bbox)
             detections.append((frame_idx, hazard))
@@ -174,7 +174,7 @@ def main(holdout_dir: str, debug: bool = False):
     logger = Logger(log_file)
     sys.stdout = logger
 
-    print(f"Evaluation {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}  log → {log_file}")
+    print(f"Evaluation {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}  log -> {log_file}")
 
     # Set random seed for reproducibility (CRITICAL: must be before feature extraction)
     set_seed(seed=42, deterministic=True)
@@ -248,8 +248,8 @@ def main(holdout_dir: str, debug: bool = False):
             # restriction so the user can see when/why the model eventually fired
             # and which frames were gated.  Result is discarded (diagnostics only).
             if debug and not detected:
-                print(f"  [MISSED debug: onset@{onset_frame} — re-running, "
-                      f"showing ALL frames ≥ threshold]")
+                print(f"  [MISSED debug: onset@{onset_frame} - re-running, "
+                      f"showing ALL frames >= threshold]")
                 evaluate_video(video_path, gt, model, detector, cfg, device,
                                threshold, debug=True, debug_before_frame=None)
 
@@ -279,7 +279,7 @@ def main(holdout_dir: str, debug: bool = False):
             detected = result['first_detection_frame'] >= 0
             print(f"{'FP' if detected else 'OK'} (max_hazard={result['max_hazard']:.3f})")
 
-    print("\n── Attack videos — threat detection ──")
+    print("\n-- Attack videos - threat detection --")
 
     detected_attacks = []
     missed_attacks = []
@@ -335,7 +335,7 @@ def main(holdout_dir: str, debug: bool = False):
         if pre_contact_warnings:
             print(f"  Pre-contact only : {np.mean(pre_contact_warnings):.1f} frames ({np.mean(pre_contact_warnings)/cfg.input_fps:.2f}s)")
 
-    print("\n── Safe videos ──")
+    print("\n-- Safe videos --")
 
     false_positives = []
     true_negatives = []
@@ -354,7 +354,7 @@ def main(holdout_dir: str, debug: bool = False):
     print(f"\nFalse Positive Rate (safe) : {fp_rate:.1%} ({len(false_positives)}/{len(safe_results)})")
     print(f"True Negative Rate         : {tn_rate:.1%} ({len(true_negatives)}/{len(safe_results)})")
 
-    print("\n── Overall summary ──")
+    print("\n-- Overall summary --")
     print(f"Total Videos : {len(attack_results) + len(safe_results)}  "
           f"(attacks={len(attack_results)}  safe={len(safe_results)})")
     print(f"Threshold (THREAT) : {threshold:.2f}")
@@ -368,8 +368,8 @@ def main(holdout_dir: str, debug: bool = False):
               f"Mean Lead: {np.mean(lead_times):.1f} frames "
               f"({np.mean(lead_times)/cfg.input_fps:.2f}s)")
 
-    # ── Window-level analysis: PR curve + feature importance on holdout ────
-    print("\n── Window-level analysis (holdout set) ──")
+    # Window-level analysis: PR curve + feature importance on holdout
+    print("\n-- Window-level analysis (holdout set) --")
     print("Building window-level dataset from holdout videos...")
 
     # Re-seed for deterministic feature extraction
@@ -377,7 +377,7 @@ def main(holdout_dir: str, debug: bool = False):
 
     all_Xw, all_Mw, all_yw = [], [], []
 
-    # Attack videos — holdout videos are NOT trimmed; they contain normal
+    # Attack videos - holdout videos are NOT trimmed; they contain normal
     # frames before onset.  Extract all frames as "safe" (y=0) first, then
     # relabel frames from onset_frame onward as attack (y=1).
     # Frame indices in labels.json refer to raw 30fps frames; after
@@ -417,20 +417,20 @@ def main(holdout_dir: str, debug: bool = False):
                 all_yw.append(yw)
 
     if not all_Xw:
-        print("No windows extracted — skipping window-level analysis.")
+        print("No windows extracted - skipping window-level analysis.")
     else:
         Xw_all = np.concatenate(all_Xw)
         Mw_all = np.concatenate(all_Mw)
         yw_all = np.concatenate(all_yw)
 
-        # Concatenate features + masks → model input
+        # Concatenate features + masks -> model input
         holdout_input = np.concatenate([Xw_all, Mw_all], axis=2).astype(np.float32)
 
         n_attack_w = int((yw_all >= 0.5).sum())
         n_safe_w = int((yw_all < 0.5).sum())
         print(f"  Total windows: {len(yw_all)} (attack={n_attack_w}, safe={n_safe_w})")
 
-        # ── Collect predictions ──────────────────────────────────────────────
+        # Collect predictions
         model.eval()
         all_scores = []
         batch_size = 64
@@ -443,7 +443,7 @@ def main(holdout_dir: str, debug: bool = False):
         y_true = (yw_all >= 0.5).astype(int)
         y_score = np.array(all_scores)
 
-        # ── Window-level metrics at selected threshold ───────────────────────
+        # Window-level metrics at selected threshold
         from sklearn.metrics import precision_recall_fscore_support, accuracy_score
 
         y_pred = (y_score >= threshold).astype(int)
@@ -474,7 +474,7 @@ def main(holdout_dir: str, debug: bool = False):
         except ImportError as e:
             print(f"\n  Skipping PR/ROC curves: {e}")
 
-        # ── Feature Importance ───────────────────────────────────────────────
+        # Feature Importance
         print("\nComputing feature importance (holdout set)...")
         from torch.utils.data import TensorDataset, DataLoader
 
@@ -496,7 +496,7 @@ def main(holdout_dir: str, debug: bool = False):
         importance_output = f"outputs/logs/feature_importance_holdout_{timestamp}.json"
         save_importance_results(importances, baseline_f1, importance_output)
 
-    print(f"\nEvaluation done {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}  log → {log_file}")
+    print(f"\nEvaluation done {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}  log -> {log_file}")
 
     logger.close()
     sys.stdout = sys.__stdout__

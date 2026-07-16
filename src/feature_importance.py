@@ -101,7 +101,7 @@ def compute_permutation_importance(model, val_loader, threshold, device, n_repea
             'index': feat_idx
         }
 
-        print(f"  [{feat_idx:2d}] {feature_name:30s}: F1 drop = {mean_f1_drop:+.4f} ± {std_f1_drop:.4f}")
+        print(f"  [{feat_idx:2d}] {feature_name:30s}: F1 drop = {mean_f1_drop:+.4f} +/- {std_f1_drop:.4f}")
 
     return importances, baseline_f1
 
@@ -125,8 +125,8 @@ def print_importance_ranking(importances, baseline_f1):
         else:
             importance_pct = 0.0
 
-        marker = "⭐" if rank <= 5 else "  "
-        print(f"{rank:<4} {marker} {name:<30} {mean_drop:+.6f}  ±{std_drop:.6f}   {importance_pct:6.2f}%      {feat_idx:<6}")
+        marker = "*" if rank <= 5 else "  "
+        print(f"{rank:<4} {marker} {name:<30} {mean_drop:+.6f}  +/-{std_drop:.6f}   {importance_pct:6.2f}%      {feat_idx:<6}")
 
     print("\nTop 5 most important features:")
     for rank, (name, imp) in enumerate(sorted_features[:5], start=1):

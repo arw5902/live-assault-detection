@@ -43,16 +43,15 @@ class WindowDataset(Dataset):
         return self.X[i], self.y[i]
 
 def main(model_type: str = "gru"):
-    # Setup logging
     os.makedirs("outputs/logs", exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     log_file = f"outputs/logs/train_{timestamp}.log"
     logger = Logger(log_file)
     sys.stdout = logger
 
-    print(f"Training {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}  log → {log_file}")
+    print(f"Training {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}  log -> {log_file}")
 
-    # Set random seed for reproducibility (CRITICAL: must be before dataset building)
+    # seed before building the dataset
     set_seed(seed=42, deterministic=True)
     print_seed_info(seed=42, deterministic=True)
     print()
@@ -60,25 +59,21 @@ def main(model_type: str = "gru"):
     cfg = Config.for_pc()
     detector = PoseDetector(cfg)
 
-    # Build dataset per video (prevents data leakage)
+    # build per video so windows don't leak across the split
     video_data = build_dataset_per_video(detector, cfg)
 
-    # Separate safe and attack videos for class-balanced splitting
     safe_videos = []
     attack_videos = []
 
     for xw, mw, yw in video_data:
-        # Check if video is safe or attack based on majority label
         if np.mean(yw) < 0.5:
             safe_videos.append((xw, mw, yw, xw.shape[0]))
         else:
             attack_videos.append((xw, mw, yw, xw.shape[0]))
 
-    # Shuffle each class independently
     np.random.shuffle(safe_videos)
     np.random.shuffle(attack_videos)
 
-    # Helper function for window-based split
     def split_by_windows(video_list, val_fraction=0.20):
         """Split videos to achieve target window fraction in validation set."""
         if len(video_list) == 0:
@@ -92,9 +87,7 @@ def main(model_type: str = "gru"):
         val_count = 0
 
         for xw, mw, yw, size in video_list:
-            # Greedy assignment: add to val if closer to target
             if val_count < target_val and len(train_set) > 0:
-                # Check if adding this video would overshoot less than not adding it
                 overshoot_if_add = abs((val_count + size) - target_val)
                 undershoot_if_skip = abs(val_count - target_val)
 
@@ -111,19 +104,16 @@ def main(model_type: str = "gru"):
 
         return train_set, val_set
 
-    # Split each class independently to maintain class balance
     safe_train, safe_val = split_by_windows(safe_videos, val_fraction=0.20)
     attack_train, attack_val = split_by_windows(attack_videos, val_fraction=0.20)
 
-    # Combine train and val sets
     train_videos = safe_train + attack_train
     val_videos = safe_val + attack_val
 
-    # Ensure both sets have at least one video
     if len(train_videos) == 0 or len(val_videos) == 0:
         raise RuntimeError("Train/val split resulted in empty set. Need more videos.")
 
-    # Shuffle combined sets (maintains video-level separation, no data leakage)
+    # shuffle within each split
     np.random.shuffle(train_videos)
     np.random.shuffle(val_videos)
 
@@ -132,7 +122,6 @@ def main(model_type: str = "gru"):
     print(f"  Train videos: {len(train_videos)} (safe={len(safe_train)}, attack={len(attack_train)})")
     print(f"  Val videos: {len(val_videos)} (safe={len(safe_val)}, attack={len(attack_val)})")
 
-    # Concatenate windows within train and val sets
     Xtr = np.concatenate([xw for xw, _, _ in train_videos], axis=0)
     Mtr = np.concatenate([mw for _, mw, _ in train_videos], axis=0)
     ytr = np.concatenate([yw for _, _, yw in train_videos], axis=0)
@@ -141,7 +130,6 @@ def main(model_type: str = "gru"):
     Mva = np.concatenate([mw for _, mw, _ in val_videos], axis=0)
     yva = np.concatenate([yw for _, _, yw in val_videos], axis=0)
 
-    # Dataset balance analysis (window-level after video split)
     n_safe_tr = np.sum(ytr == 0)
     n_attack_tr = np.sum(ytr == 1)
     n_safe_va = np.sum(yva == 0)
@@ -163,12 +151,10 @@ def main(model_type: str = "gru"):
     print(f"  Safe windows: {n_safe_va} ({n_safe_va/total_va*100:.1f}%)")
     print(f"  Attack windows: {n_attack_va} ({n_attack_va/total_va*100:.1f}%)")
 
-    # Verify split quality
     val_fraction = total_va / total_all
     if val_fraction < 0.15 or val_fraction > 0.25:
         print(f"\n  WARNING: Val fraction {val_fraction:.1%} is outside target range [15%-25%]")
 
-    # Compute class imbalance ratio for reference
     attack_weight = n_safe_tr / max(1, n_attack_tr)
     print(f"\nClass imbalance ratio (safe/attack windows): {attack_weight:.2f}")
     print()
@@ -185,9 +171,8 @@ def main(model_type: str = "gru"):
     print(f"\nFeatures: input_dim={input_dim} (features+masks)  raw={num_raw_features}  "
           f"FEATURE_NAMES={len(FEATURE_NAMES)}")
     if num_raw_features != len(FEATURE_NAMES):
-        print(f"  WARNING: feature count mismatch — importance evaluation will be wrong")
+        print(f"  WARNING: feature count mismatch - importance evaluation will be wrong")
 
-    # Save metadata for inference
     os.makedirs("outputs/checkpoints", exist_ok=True)
     model_filename = f"hazard_{model_type}_{timestamp}.pt"
     model_path = f"outputs/checkpoints/{model_filename}"
@@ -209,9 +194,7 @@ def main(model_type: str = "gru"):
 
     opt = torch.optim.Adam(model.parameters(), lr=cfg.lr)
 
-    # Focal Loss — down-weights easy (well-classified) examples so the model
-    # focuses on hard, ambiguous samples.  Alpha balances positive/negative
-    # classes; gamma controls the rate at which easy examples are down-weighted.
+    # Focal loss: alpha balances the classes, gamma down-weights easy examples.
     focal_gamma = cfg.focal_gamma if hasattr(cfg, 'focal_gamma') else 2.0
     focal_alpha = cfg.focal_alpha if hasattr(cfg, 'focal_alpha') else 0.75
 
@@ -293,7 +276,7 @@ def main(model_type: str = "gru"):
             y_true = (np.array(all_labels) >= 0.5).astype(int)
             n_neg = max(1, int((y_true == 0).sum()))
 
-            # --- pass 1: collect metrics at every threshold ----------------------
+            # pass 1: collect metrics at every threshold
             thresh_table = []              # (thresh, acc, prec, rec, f1, fpr)
             for thresh in thresholds:
                 y_pred = (np.array(all_preds) >= thresh).astype(int)
@@ -304,7 +287,7 @@ def main(model_type: str = "gru"):
                 fpr = fp / n_neg
                 thresh_table.append((thresh, acc, prec, rec, f1, fpr))
 
-            # --- pass 2: best F1, ties broken by recall then higher threshold ----
+            # pass 2: best F1, ties broken by recall then higher threshold
             best_row = max(thresh_table, key=lambda x: (x[4], x[3], x[0]))
             selection = "best-F1"
 
@@ -334,8 +317,8 @@ def main(model_type: str = "gru"):
                 with open("outputs/checkpoints/meta.json", "w") as f:
                     json.dump(meta, f)
 
-                print(f"  ★ New best — F1={f1:.3f} Rec={rec:.3f} FP%={fpr_at_thresh:.1%} "
-                      f"@ thresh={best_thresh:.2f} [{selection}] — Model saved!")
+                print(f"  * New best - F1={f1:.3f} Rec={rec:.3f} FP%={fpr_at_thresh:.1%} "
+                      f"@ thresh={best_thresh:.2f} [{selection}] - Model saved!")
 
             metrics_str = (f"  Val @ thresh={best_thresh:.2f} [{selection}]: "
                            f"Acc={acc:.3f} Prec={prec:.3f} Rec={rec:.3f} "
@@ -352,7 +335,7 @@ def main(model_type: str = "gru"):
     print(f"Best F1: {global_best_f1:.3f}  Recall: {global_best_rec:.3f}  at threshold {global_best_thresh:.2f} (epoch {best_epoch})")
     print(f"Model saved to: {model_path} (selected by best F1)")
 
-    # ── Precision-Recall and ROC curves ─────────────────────────────────────
+    # Precision-Recall and ROC curves
     print("\nGenerating PR and ROC curves...")
 
     # Load best model and collect predictions on validation set
@@ -378,7 +361,7 @@ def main(model_type: str = "gru"):
             roc_path=f"outputs/plots/roc_curve_{timestamp}.png",
         )
     except ImportError:
-        print("  matplotlib not installed — skipping curve plots")
+        print("  matplotlib not installed - skipping curve plots")
         print("  Install with: pip install matplotlib")
 
     print("\nComputing feature importance...")

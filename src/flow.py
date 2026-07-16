@@ -116,12 +116,12 @@ def estimate_background_homography(
 
     Models the full projective camera motion (translation, rotation, scale,
     shear) between frames.  Unlike a single median vector, a homography
-    correctly compensates for camera yaw / pitch / roll — the dominant
+    correctly compensates for camera yaw / pitch / roll - the dominant
     artefacts on a body-worn camera when the officer is walking or turning.
 
     Args:
-        p0            : (N,2) float32 — background point positions in prev frame.
-        p1            : (N,2) float32 — corresponding positions in curr frame.
+        p0            : (N,2) float32 - background point positions in prev frame.
+        p1            : (N,2) float32 - corresponding positions in curr frame.
         ransac_thresh : reprojection error threshold in pixels for RANSAC inlier
                         classification.
 
@@ -148,12 +148,12 @@ def predict_flow_homography(
     """Predict per-point flow due to camera motion using a homography.
 
     For each point in pts (previous-frame positions), applies the homography
-    H (which maps prev→curr frame under pure camera motion) and returns the
+    H (which maps prev->curr frame under pure camera motion) and returns the
     resulting displacement vector.  Subtracting this from the observed flow
     yields the residual motion attributable to the subject, not the camera.
 
     Args:
-        H   : (3,3) homography matrix (prev→curr).
+        H   : (3,3) homography matrix (prev->curr).
         pts : (N,2) float32 point positions in the previous frame.
 
     Returns:

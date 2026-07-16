@@ -37,7 +37,7 @@ class TemporalDerivatives:
 
     Computes dlog_area_dt, d2log_area_dt2, wrist vel/accel, and
     dlog_scale_dt from successive feature vectors.  Single source of
-    truth — used by evaluate.py, infer.py run(), and infer.py run_on_file().
+    truth - used by evaluate.py, infer.py run(), and infer.py run_on_file().
     """
 
     def __init__(self):
@@ -68,7 +68,7 @@ class TemporalDerivatives:
             x[54] d_nose_y_rel_dt,   m[54]
 
         Returns:
-            dlog_scale_dt — needed by add_interaction_features().
+            dlog_scale_dt - needed by add_interaction_features().
         """
         log_area  = float(x[9])
         dist_l    = float(x[19])
@@ -76,7 +76,7 @@ class TemporalDerivatives:
         log_scale = float(x[47])
         log_scale_valid = float(m[47]) > 0.5
 
-        # ── log_area derivatives (indices 10, 11) ─────────────────────────
+        # log_area derivatives (indices 10, 11)
         dlog_area_dt   = 0.0
         d2log_area_dt2 = 0.0
         have_log_area  = self.prev_log_area is not None
@@ -89,7 +89,7 @@ class TemporalDerivatives:
         x[10] = dlog_area_dt;    m[10] = 1.0 if have_log_area else 0.0
         x[11] = d2log_area_dt2;  m[11] = 1.0 if have_log_area else 0.0
 
-        # ── wrist velocity / acceleration (indices 45, 46) ───────────────
+        # wrist velocity / acceleration (indices 45, 46)
         wrist_vel   = 0.0
         wrist_accel = 0.0
         have_wrist  = self.prev_wrist_dist_l is not None
@@ -110,7 +110,7 @@ class TemporalDerivatives:
         x[45] = wrist_vel;    m[45] = 1.0 if have_wrist else 0.0
         x[46] = wrist_accel;  m[46] = 1.0 if have_wrist else 0.0
 
-        # ── log_scale derivative ──────────────────────────────────────────
+        # log_scale derivative
         # Guard: only compute when current keypoints are valid (m[47]).
         # prev_log_scale is only updated on valid frames, so the derivative
         # is always between two valid readings.
@@ -120,7 +120,7 @@ class TemporalDerivatives:
         if log_scale_valid:
             self.prev_log_scale = log_scale
 
-        # ── wrist_y_rel derivative (index 50) ────────────────────────────
+        # wrist_y_rel derivative (index 50)
         wrist_y_rel       = float(x[49])
         wrist_y_rel_valid = float(m[49]) > 0.5
         d_wrist_y_rel_dt  = 0.0
@@ -131,7 +131,7 @@ class TemporalDerivatives:
             self.prev_wrist_y_rel = wrist_y_rel
         x[50] = d_wrist_y_rel_dt;  m[50] = 1.0 if have_wrist_y else 0.0
 
-        # ── ankle_spread derivative (index 52) ───────────────────────────
+        # ankle_spread derivative (index 52)
         ankle_spread       = float(x[51])
         ankle_spread_valid = float(m[51]) > 0.5
         d_ankle_spread_dt  = 0.0
@@ -142,7 +142,7 @@ class TemporalDerivatives:
             self.prev_ankle_spread = ankle_spread
         x[52] = d_ankle_spread_dt;  m[52] = 1.0 if have_ankle else 0.0
 
-        # ── nose_y_rel derivative (index 54) ─────────────────────────────
+        # nose_y_rel derivative (index 54)
         nose_y_rel       = float(x[53])
         nose_y_rel_valid = float(m[53]) > 0.5
         d_nose_y_rel_dt  = 0.0
@@ -168,7 +168,7 @@ def crop_flags(bbox, w, h, eps):
     return anyc, (left,right,top,bottom)
 
 def bbox_features(bbox, prev_bbox, dt):
-    # returns: log_area, 0.0 (dlog_area_dt placeholder — filled by dataset.py/evaluate.py/infer.py),
+    # returns: log_area, 0.0 (dlog_area_dt placeholder - filled by dataset.py/evaluate.py/infer.py),
     # cx, cy, dcx_dt, dcy_dt, aspect
     x1,y1,x2,y2 = bbox
     w = max(x2-x1, 1e-6)
@@ -198,7 +198,7 @@ def compute_torso_height_frac(
     kp_conf_thresh: float,
     bbox: Optional[list] = None,
 ) -> float:
-    """Torso height fraction = ||hip_mid − shoulder_mid|| / frame_h.
+    """Torso height fraction = ||hip_mid - shoulder_mid|| / frame_h.
 
     Uses the 2-D Euclidean distance between the midpoint of the shoulders
     (COCO-17 kps[5], kps[6]) and the midpoint of the hips (kps[11], kps[12]).
@@ -208,16 +208,16 @@ def compute_torso_height_frac(
     keypoints for a group (shoulders or hips) are unavailable, the function
     checks whether the bbox is cropped at the corresponding frame edge:
 
-      • Hips missing + bbox bottom at/near frame bottom  → hips are below the
+      - Hips missing + bbox bottom at/near frame bottom  -> hips are below the
         frame (person is VERY close).  Hip midpoint is estimated at the bottom
         frame edge so the torso fraction reflects actual proximity rather than
         returning 0.0 and falsely triggering suppression.
-      • Shoulders missing + bbox top at/near frame top  → symmetric treatment.
-      • Keypoints missing with NO corresponding crop  → genuinely occluded or
+      - Shoulders missing + bbox top at/near frame top  -> symmetric treatment.
+      - Keypoints missing with NO corresponding crop  -> genuinely occluded or
         undetectable; returns 0.0 so the gate suppresses (conservative fallback).
 
     Args:
-        kps           : (17, 3) COCO-17 array — (x, y, conf) per joint.
+        kps           : (17, 3) COCO-17 array - (x, y, conf) per joint.
         frame_h       : frame height in pixels.
         kp_conf_thresh: minimum confidence to treat a keypoint as valid.
         bbox          : [x1, y1, x2, y2] bounding box in pixels.  Required for
@@ -232,7 +232,7 @@ def compute_torso_height_frac(
 
     bbox_cx = ((float(bbox[0]) + float(bbox[2])) * 0.5) if bbox is not None else 0.0
 
-    # ── shoulder midpoint ────────────────────────────────────────────────────
+    # shoulder midpoint
     if has_l_sh and has_r_sh:
         sh = (kps[L_SH, :2] + kps[R_SH, :2]) * 0.5
     elif has_l_sh:
@@ -240,15 +240,15 @@ def compute_torso_height_frac(
     elif has_r_sh:
         sh = kps[R_SH, :2]
     else:
-        # All shoulder keypoints missing — check for top-edge crop.
+        # All shoulder keypoints missing - check for top-edge crop.
         # If the bbox top is at the frame top, the shoulders are above the
-        # frame (person filling or exceeding the frame height) → very close.
+        # frame (person filling or exceeding the frame height) -> very close.
         if bbox is not None and float(bbox[1]) <= _CROP_PX:
             sh = np.array([bbox_cx, 0.0], dtype=np.float32)
         else:
-            return 0.0  # genuinely missing, no crop evidence → gate suppresses
+            return 0.0  # genuinely missing, no crop evidence -> gate suppresses
 
-    # ── hip midpoint ─────────────────────────────────────────────────────────
+    # hip midpoint
     if has_l_hp and has_r_hp:
         hp = (kps[L_HP, :2] + kps[R_HP, :2]) * 0.5
     elif has_l_hp:
@@ -256,13 +256,13 @@ def compute_torso_height_frac(
     elif has_r_hp:
         hp = kps[R_HP, :2]
     else:
-        # All hip keypoints missing — check for bottom-edge crop.
+        # All hip keypoints missing - check for bottom-edge crop.
         # If the bbox bottom is at the frame bottom, the hips are below the
-        # frame (person too close to fit) → very close, do not suppress.
+        # frame (person too close to fit) -> very close, do not suppress.
         if bbox is not None and float(bbox[3]) >= float(frame_h) - _CROP_PX:
             hp = np.array([bbox_cx, float(frame_h)], dtype=np.float32)
         else:
-            return 0.0  # genuinely missing, no crop evidence → gate suppresses
+            return 0.0  # genuinely missing, no crop evidence -> gate suppresses
 
     torso_px = float(np.linalg.norm(hp - sh))
     return torso_px / max(float(frame_h), 1.0)
@@ -288,7 +288,7 @@ def build_features(
     dt: actual elapsed seconds since the previous processed frame.  When None
         (default) cfg.step_dt is used, which is correct for the file path
         (frame_stride / input_fps = 3/30 = 0.1 s).  The live camera path in
-        infer.py passes the wall-clock Δt so that bbox velocity features
+        infer.py passes the wall-clock dt so that bbox velocity features
         (bbox_center_vx, bbox_center_vy) stay on the same physical scale as
         the training data regardless of the actual inference rate.
     """
@@ -316,7 +316,7 @@ def build_features(
 
     norm = float(torso_s + 1e-6)
 
-    # --- bbox approach features (invalid if cropped)
+    # bbox approach features (invalid if cropped)
     log_area, _, cx, cy, dcx, dcy, aspect = bbox_features(bbox, prev_bbox, _dt)
     # x[10] (dlog_area_dt) and x[11] (d2log_area_dt2) are 0.0 placeholders here;
     # filled from frame history by dataset.py / evaluate.py / infer.py.
@@ -327,7 +327,7 @@ def build_features(
     dcx_n = (dcx / w)
     dcy_n = (dcy / h)
 
-    # --- pose features (values + validity)
+    # pose features (values + validity)
     def dist(a_idx, b_idx):
         va = kp_valid(kps, a_idx, cfg.kp_conf_thresh)
         vb = kp_valid(kps, b_idx, cfg.kp_conf_thresh)
@@ -378,7 +378,7 @@ def build_features(
     # stance width
     d_st, v_st = dist(COCO17["l_ankle"], COCO17["r_ankle"])
 
-    # --- optical flow features (if prev_gray exists)
+    # optical flow features (if prev_gray exists)
     # ROI definitions
     x1,y1,x2,y2 = bbox
     roi_person = (x1,y1,x2,y2)
@@ -391,7 +391,7 @@ def build_features(
     # lower ROI: hip-to-ankle region, below (not overlapping) the torso ROI.
     # Anchored at mid-hip y: prefer actual hip keypoints; fall back to
     # torso_c + torso_s/2 (geometric hip from torso centre/scale).
-    # Width is 1.5×torso_s to capture stance changes and kick/lunge leg spread.
+    # Width is 1.5xtorso_s to capture stance changes and kick/lunge leg spread.
     lh_side_w = 1.5 * torso_s
     if (kp_valid(kps, COCO17["l_hip"], cfg.kp_conf_thresh) and
             kp_valid(kps, COCO17["r_hip"], cfg.kp_conf_thresh)):
@@ -428,7 +428,7 @@ def build_features(
             mean_v = np.mean(v_bg, axis=0)
             bg_coh = float(np.linalg.norm(mean_v) / (np.mean(np.linalg.norm(v_bg, axis=1)) + 1e-6))
 
-        # torso ROI — try tight square first; fall back to full person bbox when
+        # torso ROI - try tight square first; fall back to full person bbox when
         # uniform clothing gives < 2 trackable points (plain shirt, etc.).
         pts_t = sample_points_in_box(*roi_torso, max_points=cfg.max_flow_points, margin=2)
         p0_t, p1_t, v_t = lk_flow(prev_gray, curr_gray, pts_t, cfg.lk_win_size, cfg.lk_max_level, crit)
@@ -444,7 +444,7 @@ def build_features(
             trans_signed_torso, trans_torso, div_torso, div_ratio_torso = radial_tangential_stats(p0_t, v_t2, torso_c)
             flow_ok = 1.0
 
-        # lower ROI — use its own center for decomposition so forward leg motion
+        # lower ROI - use its own center for decomposition so forward leg motion
         # is correctly classified as radial (approaching), not tangential.
         # Fall back to full person bbox when legs are off-frame or heavily occluded.
         lower_c = np.array([(lx1+lx2)/2.0, (ly1+ly2)/2.0], dtype=np.float32)
@@ -470,8 +470,8 @@ def build_features(
     v_wrist_asym = 0.0
     v_face_vis = 1.0  # always valid (uses confidence scores)
 
-    # Torso compression: torso_height / torso_width — aspect ratio of the torso.
-    #   ~2.0 upright, <1.5 crouching/lunging.
+    # Torso compression: torso_height / torso_width - aspect ratio of the torso.
+    # ~2.0 upright, <1.5 crouching/lunging.
     # Strict: both shoulders + both hips + shoulder width valid.
     # Fallback: any shoulder + any hip; width from shoulder, hip, or bbox.
     has_both_sh = kp_valid(kps, COCO17["l_shoulder"], cfg.kp_conf_thresh) and kp_valid(kps, COCO17["r_shoulder"], cfg.kp_conf_thresh)
@@ -534,19 +534,19 @@ def build_features(
     # Robust scale (distance proxy): use torso height only (mid-shoulder to mid-hip) when available.
     #
     # Rationale:
-    #   Using lateral widths (shoulder/hip width) inside the distance proxy can create false "approach"
-    #   spikes when a person turns from sideways to front-facing (width increases without true distance change).
-    #   Torso height is far less sensitive to yaw and arm pose, so it is a safer scale cue for software-only
-    #   proximity estimation on body-cam video.
+    # Using lateral widths (shoulder/hip width) inside the distance proxy can create false "approach"
+    # spikes when a person turns from sideways to front-facing (width increases without true distance change).
+    # Torso height is far less sensitive to yaw and arm pose, so it is a safer scale cue for software-only
+    # proximity estimation on body-cam video.
     #
     # Notes:
-    #   Torso height can still change with strong pitch / bending / crouching. Downstream, treat dlog_scale_dt
-    #   as a soft cue and rely on visibility + articulation features to avoid false positives.
+    # Torso height can still change with strong pitch / bending / crouching. Downstream, treat dlog_scale_dt
+    # as a soft cue and rely on visibility + articulation features to avoid false positives.
     # Torso-scale reliability gating:
-    #   Neck/shoulder->hip scale can become unreliable when the person bends forward (foreshortening),
-    #   when hips are truncated/cropped near the bottom border, or when hip keypoints jitter/shift.
-    #   In those cases we mark log_scale invalid (v_log_scale=0) so FeatureState will carry-forward
-    #   the last reliable scale instead of letting proximity features spike.
+    # Neck/shoulder->hip scale can become unreliable when the person bends forward (foreshortening),
+    # when hips are truncated/cropped near the bottom border, or when hip keypoints jitter/shift.
+    # In those cases we mark log_scale invalid (v_log_scale=0) so FeatureState will carry-forward
+    # the last reliable scale instead of letting proximity features spike.
 
     # Default
     log_scale = 0.0
@@ -564,7 +564,7 @@ def build_features(
         hip_near_bottom = bool(hp_pt[1] >= (h - bottom_margin_px))
 
         # 2) Strong forward bend / pitch causes foreshortening: torso segment becomes far from vertical.
-        #    Compute tilt from vertical axis (0=vertical).
+        # Compute tilt from vertical axis (0=vertical).
         if torso_height_px > 1e-3:
             v_unit = torso_vec / torso_height_px
             # vertical axis is (0,1); clamp dot for numerical stability
@@ -590,11 +590,11 @@ def build_features(
         v_log_scale = 0.0  # mark as unreliable fallback
 
     # Best-effort torso height (px): single-side shoulder/hip fallback.
-    # Unlike log_scale: no hip_near_bottom or bend_like invalidation — those guards
+    # Unlike log_scale: no hip_near_bottom or bend_like invalidation - those guards
     # exist on log_scale to protect its derivative (approach_rate) from jitter, but
     # torso_ht_px is not differentiated so the looser condition is safe.
     # v=1 when at least one shoulder + one hip keypoint exceeds kp_conf_thresh (real geometry).
-    # v=0 only when no usable keypoints at all → falls back to bbox height.
+    # v=0 only when no usable keypoints at all -> falls back to bbox height.
     has_l_sh_be = kp_valid(kps, COCO17["l_shoulder"], cfg.kp_conf_thresh)
     has_r_sh_be = kp_valid(kps, COCO17["r_shoulder"], cfg.kp_conf_thresh)
     has_l_hp_be = kp_valid(kps, COCO17["l_hip"],      cfg.kp_conf_thresh)
@@ -627,12 +627,12 @@ def build_features(
         torso_ht_px = float(max(_y2b - _y1b, 1.0))
         v_torso_ht_px = 0.0
 
-    # ── Phase E features (computed after torso_ht_px so sh_be/hp_be are available) ──
+    # Phase E features (computed after torso_ht_px so sh_be/hp_be are available)
 
-    # #12: Wrist vertical position relative to hip — captures raised fist/weapon.
-    #   max of (hip_y − wrist_y) / bbox_h for L/R wrist.
-    #   Positive = wrist above hip (raised), negative = wrist below hip.
-    #   Uses single-side hip fallback (same as torso_ht_px).
+    # #12: Wrist vertical position relative to hip - captures raised fist/weapon.
+    # max of (hip_y - wrist_y) / bbox_h for L/R wrist.
+    # Positive = wrist above hip (raised), negative = wrist below hip.
+    # Uses single-side hip fallback (same as torso_ht_px).
     wrist_y_rel   = 0.0
     v_wrist_y_rel = 0.0
     _bbox_h = max(bbox[3] - bbox[1], 1.0)
@@ -649,8 +649,8 @@ def build_features(
             wrist_y_rel   = best_wrist_y_rel
             v_wrist_y_rel = 1.0
 
-    # #13: Ankle spread — horizontal stride width, captures running/charging.
-    #   |ankle_L_x − ankle_R_x| / bbox_w
+    # #13: Ankle spread - horizontal stride width, captures running/charging.
+    # |ankle_L_x - ankle_R_x| / bbox_w
     ankle_spread   = 0.0
     v_ankle_spread = 0.0
     _bbox_w = max(bbox[2] - bbox[0], 1.0)
@@ -662,9 +662,9 @@ def build_features(
         ankle_spread   = abs(la_x - ra_x) / _bbox_w
         v_ankle_spread = 1.0
 
-    # #14: Nose vertical position relative to shoulder midpoint — captures ducking/lunging.
-    #   (shoulder_mid_y − nose_y) / bbox_h.  Positive = head above shoulders (normal),
-    #   decreasing = ducking.
+    # #14: Nose vertical position relative to shoulder midpoint - captures ducking/lunging.
+    # (shoulder_mid_y - nose_y) / bbox_h.  Positive = head above shoulders (normal),
+    # decreasing = ducking.
     nose_y_rel   = 0.0
     v_nose_y_rel = 0.0
     has_nose_kp = kp_valid(kps, COCO17["nose"], cfg.kp_conf_thresh)
@@ -674,8 +674,8 @@ def build_features(
         nose_y_rel   = (sh_y - ns_y) / _bbox_h
         v_nose_y_rel = 1.0
 
-    # #16: Upper-lower body asynchrony — |trans_torso − trans_lower|.
-    #   Large value = arms moving but legs still (or vice versa).
+    # #16: Upper-lower body asynchrony - |trans_torso - trans_lower|.
+    # Large value = arms moving but legs still (or vice versa).
     upper_lower_async = abs(trans_torso - trans_low)
 
     # Assemble feature vector (values) + validity mask for pose/flow parts
@@ -745,11 +745,11 @@ def build_features(
     m[47] = v_log_scale
     m[48] = v_torso_ht_px
     m[49] = v_wrist_y_rel
-    m[50] = 0.0    # d_wrist_y_rel_dt — placeholder
+    m[50] = 0.0    # d_wrist_y_rel_dt - placeholder
     m[51] = v_ankle_spread
-    m[52] = 0.0    # d_ankle_spread_dt — placeholder
+    m[52] = 0.0    # d_ankle_spread_dt - placeholder
     m[53] = v_nose_y_rel
-    m[54] = 0.0    # d_nose_y_rel_dt — placeholder
+    m[54] = 0.0    # d_nose_y_rel_dt - placeholder
     m[55] = flow_ok  # upper_lower_async valid when flow is ok
 
     debug = {
@@ -777,7 +777,7 @@ def add_interaction_features(
     cfg = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
-    Add interaction features (motion × proximity) to a single feature vector.
+    Add interaction features (motion x proximity) to a single feature vector.
     Used during frame-by-frame inference and evaluation when temporal derivatives
     are available from previous frames.
 
@@ -799,23 +799,23 @@ def add_interaction_features(
     divergence_torso = x[34]    # torso divergence
 
     # approach_rate: positive only when BOTH apparent size is growing AND flow is toward camera.
-    # Distant-person leg lift: dlog_scale_dt ≈ 0 → approach_rate ≈ 0.
-    # Retreating person: trans_signed_torso < 0 → approach_rate = 0.
+    # Distant-person leg lift: dlog_scale_dt ~ 0 -> approach_rate ~ 0.
+    # Retreating person: trans_signed_torso < 0 -> approach_rate = 0.
     approach_rate = float(max(dlog_scale_dt, 0.0) * max(trans_signed_torso, 0.0))
 
     # Proximity weight: prefer log_scale (strict) when valid; fall back to
     # log(torso_ht_px) (lenient, index 48) when log_scale is invalid (ok=0)
     # so that a stale carry-forward value doesn't inflate expansion_proximity
     # for a far person whose keypoints temporarily failed strict validity checks.
-    # Exponent 0.3 creates ~57% more weight for close (ls≈5.5) vs far (ls≈4.0).
+    # Exponent 0.3 creates ~57% more weight for close (ls~5.5) vs far (ls~4.0).
     ls_ok = m[47] > 0.5
     th_ok = m[48] > 0.5
     if ls_ok:
-        scale_for_weight = float(x[47])                     # log_scale  — strict, reliable
+        scale_for_weight = float(x[47])                     # log_scale  - strict, reliable
     elif th_ok:
-        scale_for_weight = float(np.log(max(x[48], 1.0)))  # log(torso_ht_px) — lenient fallback
+        scale_for_weight = float(np.log(max(x[48], 1.0)))  # log(torso_ht_px) - lenient fallback
     else:
-        scale_for_weight = float(x[47])                     # stale carry-forward — last resort
+        scale_for_weight = float(x[47])                     # stale carry-forward - last resort
     prox_exp = cfg.proximity_exponent if cfg is not None else 0.3
     proximity_weight = float(np.exp(scale_for_weight * prox_exp))
 

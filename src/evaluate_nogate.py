@@ -78,7 +78,7 @@ def evaluate_video(video_path, ground_truth, model, detector, cfg, device, thres
 
         # Resize to training resolution so pixel-magnitude features (log_scale,
         # log_area, flow magnitudes) match the scale the GRU was trained on.
-        # Mirrors the resize added to infer.py — must be kept in sync.
+        # Mirrors the resize added to infer.py - must be kept in sync.
         if frame.shape[1] != cfg.infer_w or frame.shape[0] != cfg.infer_h:
             frame = cv2.resize(frame, (cfg.infer_w, cfg.infer_h))
 
@@ -93,7 +93,7 @@ def evaluate_video(video_path, ground_truth, model, detector, cfg, device, thres
         x, m, dbg, prev_gray = build_features(frame, prev_gray, prev_bbox, det, track_age, lost, cfg)
         prev_bbox = bbox
 
-        # Compute temporal derivatives — must match dataset.py post-processing exactly,
+        # Compute temporal derivatives - must match dataset.py post-processing exactly,
         # since build_features() leaves x[10], x[11], x[45], x[46] as 0.0 placeholders.
 
         log_area = x[9]
@@ -101,7 +101,7 @@ def evaluate_video(video_path, ground_truth, model, detector, cfg, device, thres
         dist_r = x[20]  # dist_r_wrist_torso
         log_scale = x[47]  # pose-derived log apparent size
 
-        # --- log_area derivatives (indices 10, 11) ---
+        # log_area derivatives (indices 10, 11)
         dlog_area_dt = 0.0
         d2log_area_dt2 = 0.0
 
@@ -114,7 +114,7 @@ def evaluate_video(video_path, ground_truth, model, detector, cfg, device, thres
             if prev_dlog_area_dt is not None:
                 d2log_area_dt2 = (dlog_area_dt - prev_dlog_area_dt) / dt
             else:
-                # First valid frame after init/reset → safe neutral value
+                # First valid frame after init/reset -> safe neutral value
                 d2log_area_dt2 = 0.0
 
         # Update state AFTER computing derivatives
@@ -129,7 +129,7 @@ def evaluate_video(video_path, ground_truth, model, detector, cfg, device, thres
         m[10] = 1.0 if have_log_area_deriv else 0.0
         m[11] = 1.0 if have_log_area_deriv else 0.0
 
-        # --- wrist extension velocity / acceleration (indices 45, 46) ---
+        # wrist extension velocity / acceleration (indices 45, 46)
         wrist_vel = 0.0
         wrist_accel = 0.0
         have_wrist_deriv = prev_wrist_dist_l is not None
@@ -156,7 +156,7 @@ def evaluate_video(video_path, ground_truth, model, detector, cfg, device, thres
         m[45] = 1.0 if have_wrist_deriv else 0.0
         m[46] = 1.0 if have_wrist_deriv else 0.0
 
-        # --- log_scale derivative for approach_rate (index 48) ---
+        # log_scale derivative for approach_rate (index 48)
         # Guard: only update when keypoints are valid (mirrors infer.py Fix 1).
         log_scale_valid = (float(m[47]) > 0.5)
         dlog_scale_dt = 0.0
@@ -176,7 +176,7 @@ def evaluate_video(video_path, ground_truth, model, detector, cfg, device, thres
             with torch.no_grad():
                 hazard = float(model(inp).item())
 
-            # Distance gate removed — mirrors infer.py (torso_height_frac kept for diagnostics only).
+            # Distance gate removed - mirrors infer.py (torso_height_frac kept for diagnostics only).
             torso_height_frac = compute_torso_height_frac(
                 det["kps"].astype(np.float32), frame.shape[0], cfg.kp_conf_thresh, bbox)
             detections.append((frame_idx, hazard))
@@ -333,8 +333,8 @@ def main(holdout_dir: str, debug: bool = False):
             # restriction so the user can see when/why the model eventually fired
             # and which frames were gated.  Result is discarded (diagnostics only).
             if debug and not detected:
-                print(f"  [MISSED debug: onset@{onset_frame} — re-running, "
-                      f"showing ALL frames ≥ threshold]")
+                print(f"  [MISSED debug: onset@{onset_frame} - re-running, "
+                      f"showing ALL frames >= threshold]")
                 evaluate_video(video_path, gt, model, detector, cfg, device,
                                threshold, debug=True, debug_before_frame=None)
 

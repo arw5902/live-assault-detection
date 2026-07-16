@@ -25,18 +25,18 @@ LEVEL_COLOR = {
 }
 
 # COCO-17 skeleton: pairs of keypoint indices to connect with a line
-# Index → joint:  0=nose 1=l_eye 2=r_eye 3=l_ear 4=r_ear
-#                 5=l_shoulder 6=r_shoulder 7=l_elbow 8=r_elbow
-#                 9=l_wrist 10=r_wrist 11=l_hip 12=r_hip
-#                 13=l_knee 14=r_knee 15=l_ankle 16=r_ankle
+# Index -> joint:  0=nose 1=l_eye 2=r_eye 3=l_ear 4=r_ear
+# 5=l_shoulder 6=r_shoulder 7=l_elbow 8=r_elbow
+# 9=l_wrist 10=r_wrist 11=l_hip 12=r_hip
+# 13=l_knee 14=r_knee 15=l_ankle 16=r_ankle
 COCO17_SKELETON = [
-    (0,  1), (0,  2),           # nose → eyes
-    (1,  3), (2,  4),           # eyes → ears
-    (5,  6),                    # left shoulder → right shoulder
+    (0,  1), (0,  2),           # nose -> eyes
+    (1,  3), (2,  4),           # eyes -> ears
+    (5,  6),                    # left shoulder -> right shoulder
     (5,  7), (7,  9),           # left arm
     (6,  8), (8, 10),           # right arm
-    (5, 11), (6, 12),           # shoulders → hips
-    (11, 12),                   # left hip → right hip
+    (5, 11), (6, 12),           # shoulders -> hips
+    (11, 12),                   # left hip -> right hip
     (11, 13), (13, 15),         # left leg
     (12, 14), (14, 16),         # right leg
 ]
@@ -118,7 +118,7 @@ def draw_overlay(frame: np.ndarray, bbox, level: str, hazard: float,
         x1, y1, x2, y2 = [int(v) for v in bbox]
         cv2.rectangle(vis, (x1, y1), (x2, y2), color, 2)
 
-    # Hazard bar along the top edge (width ∝ score)
+    # Hazard bar along the top edge (width ~ score)
     bar_w = int(w * min(max(hazard, 0.0), 1.0))
     cv2.rectangle(vis, (0, 0), (bar_w, 8), color, -1)
 
@@ -183,7 +183,7 @@ class _BackgroundCapture:
                     self._stop.set()
                     break
             # Resize to inference resolution when the camera native size differs
-            # (no-op for PiCamera2, which is already opened at 640 × 480).
+            # (no-op for PiCamera2, which is already opened at 640 x 480).
             if self._resize_hw is not None:
                 th, tw = self._resize_hw
                 if frame.shape[0] != th or frame.shape[1] != tw:
@@ -219,17 +219,17 @@ def run(video_source,
         debug: bool         = False,
         simulate_live: bool = False):
     """
-    Core inference loop — video file or live camera.
+    Core inference loop - video file or live camera.
 
     Parameters
     ----------
-    video_source  : int  → camera device index (cv2.VideoCapture)
-                    str  → video file path
+    video_source  : int  -> camera device index (cv2.VideoCapture)
+                    str  -> video file path
     display       : show an annotated OpenCV window
                     (automatically enabled when video_source is int)
     record        : write raw (un-annotated) frames to .mp4 and save a
                     per-frame hazard JSON sidecar.  The saved video is fully
-                    compatible with evaluate.py — add a labels.json and run
+                    compatible with evaluate.py - add a labels.json and run
                     evaluate.py on it to measure accuracy offline.
     record_dir    : directory for saved recordings
     use_picamera2 : use picamera2 for Pi Camera Module (RPi5 + AI HAT+).
@@ -238,13 +238,13 @@ def run(video_source,
     show_skeleton : overlay COCO-17 keypoints and limb lines on the display
                     window.  Has no effect on the raw recording.
     simulate_live : pace a video-file source to match the file's native FPS
-                    and use actual wall-clock dt for feature derivatives —
+                    and use actual wall-clock dt for feature derivatives -
                     making a pre-recorded video behave identically to a live
                     camera feed.  Ignored when video_source is a camera int.
     """
     set_seed(seed=42, deterministic=True)
 
-    # Note Config.for_pi() will disable skeleton being displayed on screen, 
+    # Note Config.for_pi() will disable skeleton being displayed on screen,
     # probably due to hailo backend instead of ultralytics
     cfg      = Config.for_pi() if enable_pi else Config.for_pc()
     detector = PoseDetector(cfg)
@@ -253,14 +253,14 @@ def run(video_source,
     print(f"Pose backend: {cfg.pose_backend}")
 
 
-    # ── load GRU model ────────────────────────────────────────────────────────
+    # load GRU model
     with open("outputs/checkpoints/meta.json") as f:
         meta         = json.load(f)
         input_dim    = meta["input_dim"]
         early_thresh = meta.get("best_threshold", cfg.early_thresh)
         model_file   = meta.get("model_file", "hazard_gru.pt")
 
-    # GRU runs on CPU on Pi — too small to benefit from NPU, and PyTorch
+    # GRU runs on CPU on Pi - too small to benefit from NPU, and PyTorch
     # is not available on the Hailo NPU without DFC compilation.
     # On a PC with GPU this will use CUDA automatically.
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -275,7 +275,7 @@ def run(video_source,
     print(f"Pose backend: {cfg.pose_backend}")
     print("Deterministic: ON (reproducible optical flow sampling)")
 
-    # ── temporal state (mirrors evaluate.py exactly) ──────────────────────────
+    # temporal state (mirrors evaluate.py exactly)
     buf               = deque(maxlen=cfg.window_len)
     prev_gray         = None
     prev_bbox         = None
@@ -292,7 +292,7 @@ def run(video_source,
     dt                = cfg.step_dt  # file-path default (= frame_stride/input_fps = 0.1 s)
     t_last_infer      = None         # wall-clock time of last processed frame (camera path)
 
-    # ── open video source ─────────────────────────────────────────────────────
+    # open video source
     is_camera = isinstance(video_source, int)
     if is_camera:
         display      = True     # always show window for live camera
@@ -317,7 +317,7 @@ def run(video_source,
         frame_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         frame_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
-    # ── optional recording ────────────────────────────────────────────────────
+    # optional recording
     writer      = None
     record_path = None
     hazard_log  = []
@@ -334,18 +334,18 @@ def run(video_source,
                                      (cfg.infer_w, cfg.infer_h))
             if writer.isOpened():
                 print(f"Recording raw frames to : {record_path}  "
-                      f"(codec={codec}, {cfg.infer_w}×{cfg.infer_h})")
+                      f"(codec={codec}, {cfg.infer_w}x{cfg.infer_h})")
                 break
             writer.release()
             writer = None
         if writer is None:
-            print(f"WARNING: could not open VideoWriter — recording disabled. "
+            print(f"WARNING: could not open VideoWriter - recording disabled. "
                   f"Check OpenCV codec support on this platform.")
             record_path = None
         else:
             print("(run evaluate.py on this file + labels.json to measure accuracy)")
 
-    # ── background capture thread (camera sources only) ───────────────────────
+    # background capture thread (camera sources only)
     # The background thread captures at the camera's native FPS and writes
     # every frame to the VideoWriter, completely independently of the inference
     # loop.  The inference loop grabs the *latest* frame at cfg.step_dt
@@ -361,7 +361,7 @@ def run(video_source,
             time.sleep(0.01)
         next_infer_t = time.monotonic()
 
-    # ── simulate_live: pacing state for file sources ──────────────────────────
+    # simulate_live: pacing state for file sources
     # frame_period = time between consecutive video frames (1/fps_src).
     # next_frame_t = monotonic clock target for the *next* frame read.
     # Both are only used when simulate_live=True.
@@ -374,12 +374,12 @@ def run(video_source,
         frame_period = None
         next_frame_t = None
 
-    # ── main loop ─────────────────────────────────────────────────────────────
+    # main loop
     frame_idx = 0
     bg_count  = 0   # actual frames written to VideoWriter by background thread
     try:
         while True:
-            # ── capture ───────────────────────────────────────────────────────
+            # capture
             t_frame = None   # set in camera path; stays None for file path
             if bg_cap is not None:
                 # Camera path: sleep until the next inference slot, then
@@ -421,7 +421,7 @@ def run(video_source,
                 # this frame was "received", so frame_dt (used for all velocity /
                 # acceleration features) reflects real elapsed time rather than
                 # the fixed cfg.step_dt constant.  This keeps features on the
-                # same physical scale as training (dt ≈ step_dt = 0.1 s).
+                # same physical scale as training (dt ~ step_dt = 0.1 s).
                 if simulate_live:
                     sleep_s = next_frame_t - time.monotonic()
                     if sleep_s > 0:
@@ -446,7 +446,7 @@ def run(video_source,
                 if simulate_live:
                     t_frame = time.monotonic()
 
-            # ── pose detection ────────────────────────────────────────────────
+            # pose detection
             _t0 = time.perf_counter()
             det = detector.infer(frame)
             _t_pose = time.perf_counter() - _t0
@@ -462,9 +462,9 @@ def run(video_source,
 
             bbox, track_age, lost = tracker.update(det["bbox"])
             det["bbox"] = bbox
-            kps = det["kps"]            # (17, 3) — carry forward for display
+            kps = det["kps"]            # (17, 3) - carry forward for display
 
-            # Camera path: use actual wall-clock Δt between consecutively
+            # Camera path: use actual wall-clock dt between consecutively
             # processed frames so that velocity/acceleration features stay on
             # the same physical scale as the training data (10 FPS, dt=0.1 s).
             # File path: always use cfg.step_dt (= frame_stride/input_fps = 0.1 s).
@@ -472,7 +472,7 @@ def run(video_source,
                 frame_dt = (t_frame - t_last_infer) if t_last_infer is not None else dt
                 t_last_infer = t_frame   # ready for next iteration
             else:
-                frame_dt = dt            # file path — already correct
+                frame_dt = dt            # file path - already correct
 
             _t1 = time.perf_counter()
             x, m, dbg, prev_gray = build_features(
@@ -486,7 +486,7 @@ def run(video_source,
             dist_r    = x[20]   # dist_r_wrist_torso
             log_scale = x[47]
 
-            # ── log_area derivatives (indices 10, 11) — mirrors evaluate.py ──
+            # log_area derivatives (indices 10, 11) - mirrors evaluate.py
             dlog_area_dt   = 0.0
             d2log_area_dt2 = 0.0
             have_log_area_deriv = prev_log_area is not None
@@ -502,7 +502,7 @@ def run(video_source,
             x[10] = dlog_area_dt;    m[10] = 1.0 if have_log_area_deriv else 0.0
             x[11] = d2log_area_dt2;  m[11] = 1.0 if have_log_area_deriv else 0.0
 
-            # ── wrist velocity / acceleration (indices 45, 46) ────────────────
+            # wrist velocity / acceleration (indices 45, 46)
             wrist_vel   = 0.0
             wrist_accel = 0.0
             have_wrist_deriv = prev_wrist_dist_l is not None
@@ -526,7 +526,7 @@ def run(video_source,
             x[45] = wrist_vel;    m[45] = 1.0 if have_wrist_deriv else 0.0
             x[46] = wrist_accel;  m[46] = 1.0 if have_wrist_deriv else 0.0
 
-            # ── log_scale derivative for approach_rate (index 48) ─────────────
+            # log_scale derivative for approach_rate (index 48)
             # Guard: only update prev_log_scale when keypoints are reliable
             # (m[47] > 0.5).  Invalid frames (ok=0) produce junk log_scale from
             # the bbox-area fallback; including them causes spurious spikes.
@@ -543,7 +543,7 @@ def run(video_source,
             xm = np.concatenate([x, m], axis=0).astype(np.float32)
             buf.append(xm)
 
-            # ── GRU inference ─────────────────────────────────────────────────
+            # GRU inference
             if len(buf) == cfg.window_len:
                 inp_t = torch.from_numpy(
                     np.stack(buf)[None, :, :]).to(device)
@@ -570,24 +570,24 @@ def run(video_source,
                 # (torso_height_frac < far_height_fraction), meaning the person
                 # is far away and unlikely to be an immediate threat.
                 #
-                #   torso_height_frac: ||hip_mid − shoulder_mid|| / frame_h.
-                #     2-D Euclidean, robust to camera tilt.
-                #     Returns 0.0 when keypoints are unavailable.
+                # torso_height_frac: ||hip_mid - shoulder_mid|| / frame_h.
+                # 2-D Euclidean, robust to camera tilt.
+                # Returns 0.0 when keypoints are unavailable.
                 #
-                # Distance gate removed — all alerts pass regardless of subject distance.
+                # Distance gate removed - all alerts pass regardless of subject distance.
                 log_scale_now     = float(x[47])           # kept for diagnostics
                 log_scale_ok      = (float(m[47]) > 0.5)   # kept for diagnostics
                 torso_height_frac = compute_torso_height_frac(
                     kps, frame.shape[0], cfg.kp_conf_thresh, bbox)
 
-                # Elapsed-time label: camera uses actual frames written ÷ fps
+                # Elapsed-time label: camera uses actual frames written / fps
                 # (accurate regardless of inference speed on the Pi);
-                # file uses recorded frame number ÷ input FPS.
+                # file uses recorded frame number / input FPS.
                 t_s = (bg_count / fps_src if is_camera
                        else frame_idx / cfg.input_fps)
                 # Diagnostics:
-                #   thf → torso_height_frac = ||hip_mid−shoulder_mid|| / frame_h
-                #   ls  → log_scale (ok=0 → keypoints invalid, using bbox fallback)
+                # thf -> torso_height_frac = ||hip_mid-shoulder_mid|| / frame_h
+                # ls  -> log_scale (ok=0 -> keypoints invalid, using bbox fallback)
                 if debug:
                     print(f"t={t_s:.2f}s  frame={frame_idx}  "
                           f"raw={hazard_raw:.3f}  ema={hazard_ema:.3f}  "
@@ -600,7 +600,7 @@ def run(video_source,
                           f"total={(_t_pose+_t_flow+_t_gru)*1000:.0f}ms  "
                           f"dbg={dbg}")
                 elif verbose:
-                    # Compact one-line summary per frame — less noisy than --debug.
+                    # Compact one-line summary per frame - less noisy than --debug.
                     print(f"t={t_s:.2f}s  frame={frame_idx}  "
                           f"level={level}  ema={hazard_ema:.3f}  "
                           f"thf={torso_height_frac:.3f}  persist={persist}")
@@ -617,7 +617,7 @@ def run(video_source,
                         "level":      level,
                     })
 
-            # ── display ───────────────────────────────────────────────────────
+            # display
             if display:
                 cv2.imshow("Hazard Detection",
                            draw_overlay(frame, bbox, level, hazard_ema,
@@ -628,7 +628,7 @@ def run(video_source,
             frame_idx += 1
 
     finally:
-        # ── cleanup (always runs, even on exception / KeyboardInterrupt) ──────
+        # cleanup (always runs, even on exception / KeyboardInterrupt)
         if bg_cap is not None:
             bg_cap.stop()
         detector.release()
@@ -651,14 +651,14 @@ def run(video_source,
                   "accuracy measurement.")
 
 
-# ── eval-dir: run full live pipeline on a pre-recorded dataset ───────────────
+# eval-dir: run full live pipeline on a pre-recorded dataset
 
 def run_on_file(video_path, cfg, model, device, detector, early_thresh,
                 verbose=False, debug=False, simulate_live=False):
     """
     Run the full live detection state machine on a pre-recorded video file.
 
-    Mirrors the file-path branch of run() exactly — same temporal state:
+    Mirrors the file-path branch of run() exactly - same temporal state:
     hazard_ema, persist counter, log_area derivatives,
     wrist derivatives, and the proximity+approach gate.
 
@@ -668,31 +668,31 @@ def run_on_file(video_path, cfg, model, device, detector, early_thresh,
 
     Parameters
     ----------
-    video_path   : str         — path to .mp4 video file
-    cfg          : Config      — platform config (for_pc() or for_pi())
-    model        : HazardGRU   — loaded model in eval mode
+    video_path   : str         - path to .mp4 video file
+    cfg          : Config      - platform config (for_pc() or for_pi())
+    model        : HazardGRU   - loaded model in eval mode
     device       : torch.device
     detector     : PoseDetector
-    early_thresh : float       — PRE-CONTACT threshold (from meta.json)
-    verbose      : bool        — collect per-GRU-frame timeline when True
-    debug        : bool        — print per-frame gate diagnostics (mirrors
+    early_thresh : float       - PRE-CONTACT threshold (from meta.json)
+    verbose      : bool        - collect per-GRU-frame timeline when True
+    debug        : bool        - print per-frame gate diagnostics (mirrors
                                  run() console output; captured by TeeLogger)
 
     Returns
     -------
     dict with keys:
-        first_precontact_frame : int   — first frame where level != NONE (−1 if never)
-        first_high_frame       : int   — first frame where level ∈ {HIGH, CRITICAL}
-        first_critical_frame   : int   — first frame where level == CRITICAL
-        max_hazard_raw         : float — max raw GRU output seen
-        max_hazard_ema         : float — max hazard_ema seen
-        timeline               : list  — per-frame dicts (empty when verbose=False)
+        first_precontact_frame : int   - first frame where level != NONE (-1 if never)
+        first_high_frame       : int   - first frame where level in {HIGH, CRITICAL}
+        first_critical_frame   : int   - first frame where level == CRITICAL
+        max_hazard_raw         : float - max raw GRU output seen
+        max_hazard_ema         : float - max hazard_ema seen
+        timeline               : list  - per-frame dicts (empty when verbose=False)
     None if the video file cannot be opened.
     """
     tracker = SingleTargetTracker()
     buf     = deque(maxlen=cfg.window_len)
 
-    # ── temporal state — mirrors run() file-path branch exactly ───────────────
+    # temporal state - mirrors run() file-path branch exactly
     prev_gray         = None
     prev_bbox         = None
     hazard_ema        = 0.0
@@ -710,7 +710,7 @@ def run_on_file(video_path, cfg, model, device, detector, early_thresh,
         return None
 
     # simulate_live: pace every frame to the video's native FPS and use
-    # actual wall-clock dt for feature derivatives — identical to run() camera path.
+    # actual wall-clock dt for feature derivatives - identical to run() camera path.
     if simulate_live:
         fps_src      = cap.get(cv2.CAP_PROP_FPS) or cfg.input_fps
         frame_period = 1.0 / fps_src
@@ -748,9 +748,9 @@ def run_on_file(video_path, cfg, model, device, detector, early_thresh,
             continue
 
         # Compute the time delta used for all velocity / acceleration features.
-        # simulate_live: wall-clock Δt between processed frames (mirrors run()
-        #   camera path; dt ≈ step_dt when inference is fast enough, >step_dt
-        #   when a frame takes longer than step_dt — same catch-up behaviour).
+        # simulate_live: wall-clock dt between processed frames (mirrors run()
+        # camera path; dt ~ step_dt when inference is fast enough, >step_dt
+        # when a frame takes longer than step_dt - same catch-up behaviour).
         # Normal batch mode: fixed cfg.step_dt (matches training, deterministic).
         if simulate_live:
             t_now    = time.monotonic()
@@ -759,7 +759,7 @@ def run_on_file(video_path, cfg, model, device, detector, early_thresh,
         else:
             frame_dt = dt
 
-        # Resize to training resolution — keeps pixel-magnitude features on
+        # Resize to training resolution - keeps pixel-magnitude features on
         # the same scale as the training data (log_scale, log_area, flow mags).
         if frame.shape[1] != cfg.infer_w or frame.shape[0] != cfg.infer_h:
             frame = cv2.resize(frame, (cfg.infer_w, cfg.infer_h))
@@ -787,7 +787,7 @@ def run_on_file(video_path, cfg, model, device, detector, early_thresh,
         dist_r    = x[20]   # dist_r_wrist_torso
         log_scale = x[47]
 
-        # ── log_area derivatives (indices 10, 11) ─────────────────────────────
+        # log_area derivatives (indices 10, 11)
         dlog_area_dt   = 0.0
         d2log_area_dt2 = 0.0
         have_log_area_deriv = prev_log_area is not None
@@ -800,7 +800,7 @@ def run_on_file(video_path, cfg, model, device, detector, early_thresh,
         x[10] = dlog_area_dt;    m[10] = 1.0 if have_log_area_deriv else 0.0
         x[11] = d2log_area_dt2;  m[11] = 1.0 if have_log_area_deriv else 0.0
 
-        # ── wrist velocity / acceleration (indices 45, 46) ────────────────────
+        # wrist velocity / acceleration (indices 45, 46)
         wrist_vel   = 0.0
         wrist_accel = 0.0
         have_wrist_deriv = prev_wrist_dist_l is not None
@@ -821,7 +821,7 @@ def run_on_file(video_path, cfg, model, device, detector, early_thresh,
         x[45] = wrist_vel;    m[45] = 1.0 if have_wrist_deriv else 0.0
         x[46] = wrist_accel;  m[46] = 1.0 if have_wrist_deriv else 0.0
 
-        # ── log_scale derivative for approach_rate (index 48) ────────────────
+        # log_scale derivative for approach_rate (index 48)
         # Guard: only update prev_log_scale when keypoints are valid (mirrors run()).
         log_scale_valid = (float(m[47]) > 0.5)
         dlog_scale_dt = 0.0
@@ -836,7 +836,7 @@ def run_on_file(video_path, cfg, model, device, detector, early_thresh,
         xm = np.concatenate([x, m], axis=0).astype(np.float32)
         buf.append(xm)
 
-        # ── GRU inference (only when window is full) ──────────────────────────
+        # GRU inference (only when window is full)
         if len(buf) == cfg.window_len:
             inp_t = torch.from_numpy(
                 np.stack(buf)[None, :, :]).to(device)
@@ -861,15 +861,15 @@ def run_on_file(video_path, cfg, model, device, detector, early_thresh,
             elif hazard_ema > cfg.high_thresh:      level = "HIGH"
             elif persist    >= cfg.early_persist:   level = "PRE-CONTACT"
 
-            # Distance gate removed — all alerts pass regardless of subject distance.
+            # Distance gate removed - all alerts pass regardless of subject distance.
             log_scale_now     = float(x[47])           # kept for diagnostics
             log_scale_ok      = (float(m[47]) > 0.5)   # kept for diagnostics
             torso_height_frac = compute_torso_height_frac(
                 det["kps"].astype(np.float32), frame.shape[0], cfg.kp_conf_thresh, bbox)
 
-            # Per-frame diagnostics — captured by TeeLogger → eval_dir_<ts>.log.
-            #   thf → torso_height_frac = ||hip_mid−shoulder_mid|| / frame_h
-            #   ls  → log_scale (ok=0 → keypoints invalid)
+            # Per-frame diagnostics - captured by TeeLogger -> eval_dir_<ts>.log.
+            # thf -> torso_height_frac = ||hip_mid-shoulder_mid|| / frame_h
+            # ls  -> log_scale (ok=0 -> keypoints invalid)
             if debug:
                 print(f"  frame={frame_idx:5d}  "
                       f"raw={hazard_raw:.3f}  ema={hazard_ema:.3f}  "
@@ -929,28 +929,28 @@ def evaluate_dir(eval_dir, verbose=False, debug=False, enable_pi=False,
 
     Dataset layout (same as evaluate.py / data/ directory):
         eval_dir/
-            labels.json          — attack video labels (same schema as data/)
-            attack/              — attack .mp4 files
-            safe/                — compliance/safe .mp4 files
+            labels.json          - attack video labels (same schema as data/)
+            attack/              - attack .mp4 files
+            safe/                - compliance/safe .mp4 files
 
     labels.json schema (per entry):
         {
             "video.mp4": {
                 "category":    "attack",
-                "onset_frame": <int>,   // compliance → attack transition
+                "onset_frame": <int>,   // compliance -> attack transition
                 "attack_frame": <int>   // moment of first physical contact
             }, ...
         }
 
     Parameters
     ----------
-    eval_dir  : str  — directory containing attack/, safe/, labels.json
-    verbose   : bool — dump compact frame-by-frame timeline table per video
-    debug     : bool — print full per-frame gate diagnostics (mirrors run()
-                       console output); captured by TeeLogger → log file
-    enable_pi : bool — use Config.for_pi() instead of Config.for_pc()
+    eval_dir  : str  - directory containing attack/, safe/, labels.json
+    verbose   : bool - dump compact frame-by-frame timeline table per video
+    debug     : bool - print full per-frame gate diagnostics (mirrors run()
+                       console output); captured by TeeLogger -> log file
+    enable_pi : bool - use Config.for_pi() instead of Config.for_pc()
     """
-    # ── logging ───────────────────────────────────────────────────────────────
+    # logging
     os.makedirs("outputs/logs", exist_ok=True)
     ts       = datetime.now().strftime("%Y%m%d_%H%M%S")
     log_path = os.path.join("outputs/logs", f"eval_dir_{ts}.log")
@@ -982,7 +982,7 @@ def evaluate_dir(eval_dir, verbose=False, debug=False, enable_pi=False,
         labels = json.load(f)
 
     print("=" * 80)
-    print("EVAL-DIR EVALUATION (Full Live Pipeline) — Pre-contact Detection")
+    print("EVAL-DIR EVALUATION (Full Live Pipeline) - Pre-contact Detection")
     print(f"Directory  : {eval_dir}")
     print(f"Threshold  : {early_thresh:.2f}  (from training optimisation)")
     print(f"Config     : {'Pi' if enable_pi else 'PC'}")
@@ -993,7 +993,7 @@ def evaluate_dir(eval_dir, verbose=False, debug=False, enable_pi=False,
     attack_results = []
     safe_results   = []
 
-    # ── attack videos ─────────────────────────────────────────────────────────
+    # attack videos
     print("\n--- Processing Attack Videos ---")
     attack_dir_path = os.path.join(eval_dir, "attack")
     if not os.path.exists(attack_dir_path):
@@ -1028,7 +1028,7 @@ def evaluate_dir(eval_dir, verbose=False, debug=False, enable_pi=False,
             if verbose and result["timeline"]:
                 _print_verbose_timeline(video_name, result["timeline"])
 
-    # ── safe videos ───────────────────────────────────────────────────────────
+    # safe videos
     print("\n--- Processing Safe Videos ---")
     safe_dir_path = os.path.join(eval_dir, "safe")
     if not os.path.exists(safe_dir_path):
@@ -1063,9 +1063,9 @@ def evaluate_dir(eval_dir, verbose=False, debug=False, enable_pi=False,
             if verbose and result["timeline"]:
                 _print_verbose_timeline(video_file, result["timeline"])
 
-    # ── attack summary ────────────────────────────────────────────────────────
+    # attack summary
     print("\n" + "=" * 80)
-    print("ATTACK VIDEOS — Multi-Level Warning Analysis")
+    print("ATTACK VIDEOS - Multi-Level Warning Analysis")
     print("=" * 80)
 
     detected_attacks        = []
@@ -1083,7 +1083,7 @@ def evaluate_dir(eval_dir, verbose=False, debug=False, enable_pi=False,
 
         if first_det >= 0:
             if first_det < onset_frame:
-                # Alert fired during compliance phase → false positive
+                # Alert fired during compliance phase -> false positive
                 false_positives_attacks.append(r)
                 print(f"{r['video_name']:20s} | FP @ {first_det:4d} "
                       f"(before onset@{onset_frame:4d})  "
@@ -1093,7 +1093,7 @@ def evaluate_dir(eval_dir, verbose=False, debug=False, enable_pi=False,
                 lead_time = attack_frame - first_det
                 lead_times.append(lead_time)
 
-                # HIGH / CRITICAL lead times (only if first fire ≥ onset)
+                # HIGH / CRITICAL lead times (only if first fire >= onset)
                 if r["first_high_frame"] >= onset_frame:
                     lead_times_high.append(
                         attack_frame - r["first_high_frame"])
@@ -1175,7 +1175,7 @@ def evaluate_dir(eval_dir, verbose=False, debug=False, enable_pi=False,
                 print(f"  Pre-contact CRIT : {len(crit_pc)/max(1,len(lead_times_critical)):.1%} "
                       f"({len(crit_pc)}/{len(lead_times_critical)})")
 
-    # ── safe video summary ────────────────────────────────────────────────────
+    # safe video summary
     print("\n" + "=" * 80)
     print("SAFE VIDEOS")
     print("=" * 80)
@@ -1200,7 +1200,7 @@ def evaluate_dir(eval_dir, verbose=False, debug=False, enable_pi=False,
     print(f"True Negative Rate         : {tn_rate:.1%} "
           f"({len(true_negatives)}/{len(safe_results)})")
 
-    # ── overall summary ───────────────────────────────────────────────────────
+    # overall summary
     print("\n" + "=" * 80)
     print("OVERALL SUMMARY")
     print("=" * 80)
@@ -1254,7 +1254,7 @@ def _print_verbose_timeline(video_name, timeline):
     print()
 
 
-# ── backwards-compatible entry point ─────────────────────────────────────────
+# backwards-compatible entry point
 
 def main(video_path: str):
     """
@@ -1264,11 +1264,11 @@ def main(video_path: str):
     run(video_path, display=False, record=False)
 
 
-# ── CLI ───────────────────────────────────────────────────────────────────────
+# CLI
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Hazard detection — video file or live camera")
+        description="Hazard detection - video file or live camera")
 
     parser.add_argument(
         "source", nargs="?", default="0",
@@ -1321,23 +1321,23 @@ if __name__ == "__main__":
     parser.add_argument(
         "--debug", action="store_true",
         help="With --eval-dir: print full per-frame diagnostics for every "
-             "video (mirrors the live infer.py console output — raw, ema, level, "
+             "video (mirrors the live infer.py console output - raw, ema, level, "
              "thf, ls, ok, persist, dbg). "
              "Also flags det=MISS frames where pose detection yields no bbox. "
-             "Output is captured by the TeeLogger → eval_dir_<timestamp>.log.")
+             "Output is captured by the TeeLogger -> eval_dir_<timestamp>.log.")
 
     parser.add_argument(
         "--simulate-live", action="store_true",
         help="Pace frame delivery to each video's native FPS and use actual "
              "wall-clock dt for feature derivatives, making pre-recorded videos "
              "behave identically to a live camera feed.  Works for both single-video "
-             "inference and --eval-dir batch evaluation — use on the Pi5 to obtain "
+             "inference and --eval-dir batch evaluation - use on the Pi5 to obtain "
              "a detection-rate / FP-rate report that reflects real-time performance "
              "without needing a live camera.  Has no effect on camera (int) sources.")
 
     args = parser.parse_args()
 
-    # ── eval-dir mode: evaluate a pre-recorded dataset ────────────────────────
+    # eval-dir mode: evaluate a pre-recorded dataset
     if args.eval_dir is not None:
         # evaluate_dir() sets up its own TeeLogger internally
         evaluate_dir(args.eval_dir,
@@ -1347,8 +1347,8 @@ if __name__ == "__main__":
                      simulate_live=args.simulate_live)
         sys.exit(0)
 
-    # ── live / file inference mode ────────────────────────────────────────────
-    # "0", "1", … → int (camera device index); anything else → file path
+    # live / file inference mode
+    # "0", "1", ... -> int (camera device index); anything else -> file path
     try:
         source = int(args.source)
     except ValueError:

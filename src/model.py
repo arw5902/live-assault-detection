@@ -70,14 +70,14 @@ class HazardTransformer(nn.Module):
     Lightweight Transformer encoder for hazard scoring.
 
     Architecture:
-      1. Linear input projection  : input_dim → d_model
-      2. Learnable positional emb : window_len positions × d_model
-      3. TransformerEncoder       : num_layers × (self-attn + FFN)
+      1. Linear input projection  : input_dim -> d_model
+      2. Learnable positional emb : window_len positions x d_model
+      3. TransformerEncoder       : num_layers x (self-attn + FFN)
       4. Mean pooling over time
       5. Dropout + Linear(d_model, 1) + Sigmoid
 
     With default d_model=64, nhead=4, dim_feedforward=128, num_layers=1
-    the parameter count is ~41 K — between GRU (35 K) and LSTM (47 K).
+    the parameter count is ~41 K - between GRU (35 K) and LSTM (47 K).
     """
 
     def __init__(self, input_dim: int, d_model: int = 64, nhead: int = 4,

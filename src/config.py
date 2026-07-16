@@ -13,7 +13,7 @@ class Config:
 
     # Video
     input_fps: int = 30
-    frame_stride: int = 3  # process every 3rd frame → 10 FPS at 30 FPS input
+    frame_stride: int = 3  # process every 3rd frame -> 10 FPS at 30 FPS input
 
     # Model window
     window_len: int = 5 # 0.5s at 10 FPS
@@ -37,7 +37,7 @@ class Config:
 
     # Background homography estimation (camera-motion compensation).
     # Replaces simple median subtraction with a full projective transform estimated
-    # via RANSAC from background points — correctly handles camera yaw/pitch/roll.
+    # via RANSAC from background points - correctly handles camera yaw/pitch/roll.
     # Falls back to median when RANSAC inlier count is below bg_min_inliers.
     bg_ransac_thresh: float = 3.0   # reprojection error threshold in pixels
     bg_min_inliers:   int   = 20    # min RANSAC inliers to trust homography; else median
@@ -46,13 +46,13 @@ class Config:
     torso_roi_scale:  float = 1.2   # side length of square torso ROI
     lower_roi_scale:  float = 2.0   # height of lower-body ROI below hip midpoint
 
-    # log_scale validity guards — protect dlog_scale_dt from foreshortening artefacts.
-    bend_tilt_thresh: float = 35.0  # degrees from vertical; above → log_scale invalidated
+    # log_scale validity guards - protect dlog_scale_dt from foreshortening artefacts.
+    bend_tilt_thresh: float = 35.0  # degrees from vertical; above -> log_scale invalidated
     hip_bottom_margin_px: float = 8.0  # min px from frame bottom for hip to be "not cropped"
 
     # Proximity weight exponent for interaction features.
     # exp(log_scale * proximity_exponent) creates distance-dependent scaling.
-    # 0.3 → ~57% more weight at close (ls≈5.5) vs far (ls≈4.0).
+    # 0.3 -> ~57% more weight at close (ls~5.5) vs far (ls~4.0).
     proximity_exponent: float = 0.3
 
     # Focal Loss
@@ -66,29 +66,29 @@ class Config:
     batch_size: int = 64    # more windows per batch (typically feasible)
     epochs: int = 40        # short window = easier optimization; train a bit longer
 
-    # Hazard smoothing / alerting — binary THREAT / NONE detection
+    # Hazard smoothing / alerting - binary THREAT / NONE detection
     ema_alpha: float = 0.7  # more responsive (less lag) with short window
     early_thresh: float = 0.2 # starting value was 0.35; overridden by meta.json best_threshold
     early_persist: int = 2  # PC default: 0.2 s at 10 FPS; Pi may use 1 (see for_pi)
 
-    # Inference and recording resolution — must match the training data resolution.
+    # Inference and recording resolution - must match the training data resolution.
     # PiCamera2 is already opened at this size natively.  Any other source
-    # (USB webcam, arbitrary video file) is resized to (infer_w × infer_h) before
+    # (USB webcam, arbitrary video file) is resized to (infer_w x infer_h) before
     # pose detection and optical flow, keeping pixel-magnitude features (log_scale,
     # log_area, flow magnitudes) on the same scale as the training data.
     infer_w: int = 640
     infer_h: int = 480
 
-    # Pose backend — path used depends on backend
+    # Pose backend - path used depends on backend
     pose_backend: str = "ultralytics"  # PC default; Pi uses "hailo" (see for_pi)
-    yolo_pt_path:  str = "models/yolov8m-pose.pt"          # PC — ultralytics .pt weights
-    yolo_hef_path: str = "/home/pi/hailo-rpi5-examples/resources/models/hailo8/yolov8m_pose.hef"  # Pi — Hailo HEF
-    #yolo_hef_path: str = "models/yolov8n-pose.hef"
-    #yolo_imgsz: int = 416   # The HEF on the Pi is for 416 x 416 images
+    yolo_pt_path:  str = "models/yolov8m-pose.pt"          # PC - ultralytics .pt weights
+    yolo_hef_path: str = "/home/pi/hailo-rpi5-examples/resources/models/hailo8/yolov8m_pose.hef"  # Pi - Hailo HEF
+    # yolo_hef_path: str = "models/yolov8n-pose.hef"
+    # yolo_imgsz: int = 416   # The HEF on the Pi is for 416 x 416 images
     yolo_conf: float = 0.25
     yolo_iou:  float = 0.5
 
-    # ── Named platform presets ─────────────────────────────────────────────────
+    # Named platform presets
 
     @classmethod
     def for_pc(cls) -> "Config":
@@ -104,12 +104,12 @@ class Config:
     def for_pi(cls) -> "Config":
         """
         Raspberry Pi 5 + Hailo AI HAT+ (26 TOPs, Hailo-8) preset.
-        - Pose: YOLOv8m HEF on Hailo-8 NPU, ~35 ms (observed); HEF compiled at 416×416
-        - Flow: 600 sample points (same as PC) — needed because uniform clothing
+        - Pose: YOLOv8m HEF on Hailo-8 NPU, ~35 ms (observed); HEF compiled at 416x416
+        - Flow: 600 sample points (same as PC) - needed because uniform clothing
           has very few trackable pixels; reducing to 300 causes lk_flow to find
           < 2 good points on the torso ROI and return None (flow_ok = 0)
         - Alert: persist=2
-        Total: ~35 + 40 + 5 = ~80 ms typical → ~10-12 Hz → gap ~3 frames at 30 fps
+        Total: ~35 + 40 + 5 = ~80 ms typical -> ~10-12 Hz -> gap ~3 frames at 30 fps
         """
         return cls(
             pose_backend  = "hailo",
@@ -193,15 +193,15 @@ FEATURE_NAMES = [
     "d_wrist_y_rel_dt",     # temporal derivative of wrist_y_rel (raise/strike rate)
 
     # Gait dynamics (2 dims) - indices 51-52
-    "ankle_spread",         # |ankle_L_x − ankle_R_x| / bbox_w (stride width)
+    "ankle_spread",         # |ankle_L_x - ankle_R_x| / bbox_w (stride width)
     "d_ankle_spread_dt",    # temporal derivative of ankle_spread (gait cadence)
 
     # Head motion (2 dims) - indices 53-54
-    "nose_y_rel",           # (nose_y − shoulder_mid_y) / bbox_h (head position)
+    "nose_y_rel",           # (nose_y - shoulder_mid_y) / bbox_h (head position)
     "d_nose_y_rel_dt",      # temporal derivative of nose_y_rel (ducking rate)
 
     # Upper-lower body asynchrony (1 dim) - index 55
-    "upper_lower_async",    # |translation_torso − translation_lower| (desync signal)
+    "upper_lower_async",    # |translation_torso - translation_lower| (desync signal)
 
     # Interaction features (3 dims) - indices 56-58
     "approach_rate",
