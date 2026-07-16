@@ -1256,7 +1256,7 @@ save_metadata({"best_threshold": best_threshold})
 ```
 outputs/checkpoints/
 ├── hazard_gru_YYYYMMDD_HHMMSS.pt # Model weights (best F1, timestamped)
-└── meta.json # {"input_dim": 118, "best_threshold": 0.55, "model_file": "hazard_gru_...pt"}
+└── meta.json # {"input_dim": 118, "best_threshold": 0.65, "model_file": "hazard_gru_...pt"}
 ```
 
 ---

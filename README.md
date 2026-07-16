@@ -394,7 +394,8 @@ live-assault-detection/
 │ ├── feature_importance.py # Permutation importance evaluation
 │ ├── _plot.py # Shared PR/ROC plotting helpers (used by train.py, evaluate.py)
 │ ├── utils.py # Seed management utilities
-│ └── video_io.py # Video reading utilities
+│ ├── video_io.py # Video reading utilities
+│ └── copy_mp4s.py # Helper for collecting dataset clips
 ├── data/
 │ ├── safe/ # Training safe videos
 │ └── attack/ # Training attack videos (trimmed)
@@ -410,7 +411,10 @@ live-assault-detection/
 │ ├── plots/ # PR and ROC curves
 │ └── logs/ # Training/evaluation/importance logs
 ├── docs/
-│ └── DESIGN.md # Detailed design specification
+│ ├── DESIGN.md # Detailed design specification
+│ ├── PIPELINE_DIAGRAM.md # Pipeline figure guide
+│ ├── FEATURE_IMPORTANCE_GUIDE.md # Feature-importance tooling notes
+│ └── REPRODUCIBILITY.md # Reproducibility notes
 ├── README.md # This file
 ├── requirements.txt # Python dependencies
 └── .gitignore
