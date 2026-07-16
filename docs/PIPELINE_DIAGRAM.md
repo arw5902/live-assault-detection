@@ -189,8 +189,8 @@ Size: 2" wide x 1.5" tall
 Fill: Very Light Green RGB(240, 255, 240)
 Border: 1pt, Green (dashed)
 Text (3 lines, 10pt Arial):
- "Threshold: 0.50
- EMA smoothing: α=0.7
+ "Threshold: 0.65
+ EMA smoothing: alpha=0.7
  Persistence: 2 frames"
 Single THREAT level (no multi-tier):
  - Below threshold -> safe (no alert)
@@ -207,10 +207,10 @@ Size: 2" wide x 1" tall
 Fill: Very Light Gray RGB(245, 245, 245)
 Border: 1pt, Gray
 Text (small, 9pt Arial):
- "Performance:
- - Detection: 94.6%
- - Lead Time: 0.24s
- - FP Rate: 0%"
+ "Performance (GRU):
+ - F1: 0.80
+ - Push detection: 98.8%
+ - ~10 Hz on Pi 5"
 ```
 
 ### 6. Hardware Labels (Bottom)
@@ -247,9 +247,9 @@ If the above is too detailed, use this simplified version:
 │ - 10 FPS processing (downsample from 30) │
 │ - 17 keypoints + optical flow -> 59 features + 59 masks = 118-d │
 │ - GRU: 5-frame window (0.5s), 64 hidden units │
-│ - Output: single THREAT alert at score >= 0.50 (EMA + 2-frame persistence) │
+│ - Output: single THREAT alert at score >= 0.65 (EMA + 2-frame persistence) │
 │ │
-│ Performance: 94.6% detection | 0.24s lead | 0% false positives │
+│ Performance (GRU): F1 0.80 | push detection 98.8% | ~10 Hz on Pi 5 │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -350,7 +350,7 @@ Before finalizing your slide:
 - [ ] Icons are consistent in style
 - [ ] No overcrowding (white space is good)
 - [ ] Technical terms are accurate (GRU is the deployment default; LSTM is also supported as the accuracy reference; 10 FPS not 30)
-- [ ] Numbers are up-to-date (94.6%, 0.24s, 0%)
+- [ ] Numbers match the paper (F1 0.80, push detection 98.8%, ~10 Hz)
 
 ---
 
@@ -369,9 +369,9 @@ Key Details:
 - Pose: 17 keypoints from YOLOv8m on Hailo-8 NPU
 - Features: 59-dim (pose + flow + posture + dynamics + body-shape extras + interaction) + 59 validity masks = 118-dim model input
 - Model: GRU with 64 hidden units, 5-frame sliding window (0.5s); LSTM also supported as accuracy reference
-- Output: single THREAT level - alert when smoothed score >= 0.50 for >=2 consecutive frames
+- Output: single THREAT level - alert when smoothed score >= 0.65 for >=2 consecutive frames
 
-Performance: 94.6% detection rate | 0.24s lead time | 0% false positives
+Performance (GRU): F1 0.80 | push detection 98.8% | ~10 Hz on Pi 5
 ```
 
 PowerPoint Designer will auto-generate layouts - choose the horizontal flow diagram option.

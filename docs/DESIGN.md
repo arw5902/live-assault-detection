@@ -85,14 +85,14 @@ The system combines:
 │ (30 FPS, BGR) │
 └──────────────────────────┬──────────────────────────────────┘
  │
- ▼
+ v
 ┌─────────────────────────────────────────────────────────────┐
 │ PREPROCESSING │
 │ - Downsample to 10 FPS (frame_stride=3) │
 │ - Convert to grayscale (for optical flow) │
 └──────────────────────────┬──────────────────────────────────┘
  │
- ▼
+ v
 ┌─────────────────────────────────────────────────────────────┐
 │ POSE DETECTION (YOLOv8) │
 │ - Detect person bounding box │
@@ -100,14 +100,14 @@ The system combines:
 │ - Select largest person in frame │
 └──────────────────────────┬──────────────────────────────────┘
  │
- ▼
+ v
 ┌─────────────────────────────────────────────────────────────┐
 │ TRACKING & SMOOTHING │
 │ - SingleTargetTracker: maintain bbox consistency │
 │ - Carry-forward imputation (missing keypoints) │
 └──────────────────────────┬──────────────────────────────────┘
  │
- ▼
+ v
 ┌─────────────────────────────────────────────────────────────┐
 │ FEATURE EXTRACTION (59-dim) │
 │ - Reliability/metadata: det_conf, kp stats, crop (9) │
@@ -123,7 +123,7 @@ The system combines:
 │ - Interaction: approach_rate, expansion, accel (3) │
 └──────────────────────────┬──────────────────────────────────┘
  │
- ▼
+ v
 ┌─────────────────────────────────────────────────────────────┐
 │ TEMPORAL WINDOWING │
 │ - Sliding window: 5 frames (0.5s) │
@@ -131,7 +131,7 @@ The system combines:
 │ - Input shape: [1, 5, 118] (59 features + 59 masks) │
 └──────────────────────────┬──────────────────────────────────┘
  │
- ▼
+ v
 ┌─────────────────────────────────────────────────────────────┐
 │ GRU MODEL INFERENCE │
 │ - 1-layer GRU (64 hidden units) │
@@ -140,15 +140,15 @@ The system combines:
 │ - Output: hazard score in [0, 1] │
 └──────────────────────────┬──────────────────────────────────┘
  │
- ▼
+ v
 ┌─────────────────────────────────────────────────────────────┐
 │ POST-PROCESSING & ALERTING │
-│ - EMA smoothing (α=0.7) │
+│ - EMA smoothing (alpha=0.7) │
 │ - Persistence logic (2 frames) │
 │ - Single THREAT threshold (default 0.50, tuned per model) │
 └──────────────────────────┬──────────────────────────────────┘
  │
- ▼
+ v
 ┌─────────────────────────────────────────────────────────────┐
 │ ALERT OUTPUT │
 │ - Alert state: NONE / THREAT │
@@ -396,7 +396,7 @@ python -m src.infer path/to/video.mp4 # recorded video
 
 ### 3.1 Feature Vector Overview
 
-The system extracts a **59-dimensional feature vector** per frame. Each feature has a corresponding validity mask, giving a **118-dimensional model input** ([features ∥ masks]).
+The system extracts a **59-dimensional feature vector** per frame. Each feature has a corresponding validity mask, giving a **118-dimensional model input** ([features || masks]).
 
 ```
 Feature Vector (59 dimensions):
@@ -451,7 +451,7 @@ Feature Vector (59 dimensions):
  are also 0.0 placeholders filled from frame history.
 
 Mask Vector (59 dimensions): validity flags (1 = valid, 0 = invalid/imputed)
-Model Input = [features ∥ masks] -> 118 dimensions
+Model Input = [features || masks] -> 118 dimensions
 ```
 
 ### 3.2 Detailed Feature Descriptions
@@ -480,7 +480,7 @@ The size, position, and motion of the person's bounding box - the primary proxim
 ```python
 log_area # log(bbox_width x bbox_height) - more stable than raw area
 dlog_area_dt # d(log_area)/dt - bbox growth rate (approach speed proxy)
-d2log_area_dt2 # d²(log_area)/dt² - bbox growth acceleration
+d2log_area_dt2 # d^2(log_area)/dt^2 - bbox growth acceleration
 bbox_center_x # Normalised bbox centre x [0,1]
 bbox_center_y # Normalised bbox centre y [0,1]
 bbox_center_vx # Bbox centre x velocity (frame-to-frame)
@@ -533,12 +533,12 @@ Translation-decomposed flow features for the upper-body region - separately quan
 # 3. Residual = compensated flow - v_med = deformation / expansion
 # 4. translation_signed: radial projection of v_med onto each point's outward dir
 # 5. divergence: median positive radial of residual (pure expansion signal)
-# 6. div_ratio: divergence / (divergence + mean_residual_mag + ε)
+# 6. div_ratio: divergence / (divergence + mean_residual_mag + eps)
 
 translation_signed_torso # Positive = approaching camera, negative = retreating
 translation_torso # ||v_med|| - speed of translational motion
 divergence_torso # median(radial_resid > 0) - body expanding in frame
-div_ratio_torso # divergence / (divergence + resid_mag + ε)
+div_ratio_torso # divergence / (divergence + resid_mag + eps)
  # ~1.0 -> residual is pure outward expansion
  # ~0.0 -> residual is tangential / random
 ```
@@ -565,7 +565,7 @@ div_ratio_lower # Expansion fraction of lower-body residual flow
 Camera-motion characterisation and flow validity flag - used both for background subtraction (upstream) and as context features telling the model how much camera movement is present.
 
 ```python
-bg_flow_coherence # mean(v_bg) / (||mean(v_bg)|| + ε) - coherence of background motion
+bg_flow_coherence # mean(v_bg) / (||mean(v_bg)|| + eps) - coherence of background motion
 flow_ok # 1 if LK tracking succeeded for this frame, 0 otherwise
 ```
 *Note*: Raw background flow magnitude is intentionally excluded - it was a dataset confounder (body-worn cameras from different environments had different typical background motion levels). Background vectors are subtracted from ROI flow before decomposition; `bg_flow_coherence` captures whether camera motion is translational (coherent) vs shaky.
@@ -683,7 +683,7 @@ From the **translational component** (`v_med`):
 ```
 # Project median flow onto each point's outward radial direction:
 d = p0 - center # vector from ROI centre to each tracked point
-r = ||d|| + ε
+r = ||d|| + eps
 
 radial_translation = (d - v_med) / r # per-point radial projection of translation
 
@@ -707,7 +707,7 @@ divergence = median(radial_resid[radial_resid > 0])
  # Zero when there is no net expansion in the residual
 
 resid_mag = mean(||v_resid||)
-div_ratio = divergence / (divergence + resid_mag + ε)
+div_ratio = divergence / (divergence + resid_mag + eps)
  # ~ 1.0 -> residual flow is predominantly outward expansion
  # ~ 0.0 -> residual is tangential (arm waving, rotation) or zero
 ```
@@ -723,7 +723,7 @@ div_ratio = divergence / (divergence + resid_mag + ε)
 | Raw flow magnitude | Conflated | Conflated |  No |  No |
 | Bbox area growth | Indirect (1D) | Indirect (1D) | Partial |  No |
 | Simple radial/tangential on raw flow | Polluted by translation | Polluted by translation | Partial | Partial |
-| Dense divergence field (∂fx/∂x + ∂fy/∂y) |  Absent | Noisy |  No |  No |
+| Dense divergence field (dfx/dx + dfy/dy) |  Absent | Noisy |  No |  No |
 | **This approach** |  Clean (`translation_signed`) |  Clean (`divergence`) |  Yes (2-stage) |  Yes (`div_ratio`) |
 
 Key advantages:
@@ -768,7 +768,7 @@ Sample ~200 points inside lower ROI
 Lucas-Kanade tracking: v_bg, v_torso, v_lower
 
 Background estimation: v_bg_med = median(v_bg)
-Background coherence: bg_coh = ||mean(v_bg)|| / (mean(||v_bg||) + ε)
+Background coherence: bg_coh = ||mean(v_bg)|| / (mean(||v_bg||) + eps)
 
 Background subtraction:
  v_torso_comp = v_torso - v_bg_med
@@ -978,26 +978,26 @@ Problems:
 #### 5.1.2 Focal Loss Definition
 
 ```
-FL(p_t) = -α_t - (1 - p_t)^γ - log(p_t)
+FL(p_t) = -alpha_t - (1 - p_t)^gamma - log(p_t)
 
 where:
  p_t = p if y = 1 (attack)
  = 1-p if y = 0 (safe)
 
- α_t = α if y = 1
- = 1-α if y = 0
+ alpha_t = alpha if y = 1
+ = 1-alpha if y = 0
 ```
 
 **Parameters**:
-- **γ (gamma)**: Focusing parameter
- - γ = 0: Equivalent to BCE
- - γ = 2: Standard (RetinaNet paper) - our setting
- - Higher γ -> more focus on hard examples
+- **gamma (gamma)**: Focusing parameter
+ - gamma = 0: Equivalent to BCE
+ - gamma = 2: Standard (RetinaNet paper) - our setting
+ - Higher gamma -> more focus on hard examples
 
-- **α (alpha)**: Class balance weight
- - α = 0.5: No class weighting
- - α = 0.75: Emphasize positive class (our setting)
- - Higher α -> prioritize attack detection
+- **alpha (alpha)**: Class balance weight
+ - alpha = 0.5: No class weighting
+ - alpha = 0.75: Emphasize positive class (our setting)
+ - Higher alpha -> prioritize attack detection
 
 #### 5.1.3 How Focal Loss Works
 
@@ -1009,7 +1009,7 @@ Hard (p_t = 0.5): (1 - 0.5)^2 = 0.25 -> Full weight
 Very hard (p_t = 0.3): (1 - 0.3)^2 = 0.49 -> Emphasized
 ```
 
-With γ=2, easy examples (model confident and correct) are down-weighted by ~100x compared to hard examples.
+With gamma=2, easy examples (model confident and correct) are down-weighted by ~100x compared to hard examples.
 
 #### 5.1.4 Implementation
 
@@ -1030,10 +1030,10 @@ def focal_loss(pred, target, gamma=2.0, alpha=0.75):
  # Compute p_t (probability of correct class)
  p_t = pred * target + (1 - pred) * (1 - target)
 
- # Compute α_t (weight for correct class)
+ # Compute alpha_t (weight for correct class)
  alpha_t = alpha * target + (1 - alpha) * (1 - target)
 
- # Focal loss: α_t * (1 - p_t)^γ * BCE
+ # Focal loss: alpha_t * (1 - p_t)^gamma * BCE
  focal = alpha_t * ((1 - p_t) ** gamma) * bce
 
  return focal.mean()
@@ -1043,13 +1043,13 @@ def focal_loss(pred, target, gamma=2.0, alpha=0.75):
 
 1. **Class Imbalance**: Safe windows outnumber attack windows (~1.3:1 after stride adjustment)
 2. **Hard Example Mining**: Pre-contact behavior is subtle and easily missed
-3. **Recall Priority**: Missing an attack is worse than false alarms (α=0.75 prioritizes attacks)
+3. **Recall Priority**: Missing an attack is worse than false alarms (alpha=0.75 prioritizes attacks)
 4. **Gradient Focus**: Forces model to learn from challenging pre-contact patterns
 
-**Empirical Results** (historical sweep used to pick γ/α):
-- Weighted BCE (γ=0, α=0.57): baseline pre-contact rate, near-zero lead
-- Focal Loss (γ=2, α=0.57): improved pre-contact rate and lead time
-- Focal Loss (γ=2, α=0.75): **chosen setting** - best F1 with positive-class emphasis
+**Empirical Results** (historical sweep used to pick gamma/alpha):
+- Weighted BCE (gamma=0, alpha=0.57): baseline pre-contact rate, near-zero lead
+- Focal Loss (gamma=2, alpha=0.57): improved pre-contact rate and lead time
+- Focal Loss (gamma=2, alpha=0.75): **chosen setting** - best F1 with positive-class emphasis
 
 ### 5.2 Data Preparation
 
@@ -1419,108 +1419,66 @@ input = input.half()
 
 ### 7.1 Detection Metrics
 
-#### Detection Rate
-```
-Detection Rate = Detected Attacks / Total Attacks
- = TP / (TP + FN)
- = Recall
+Evaluation in the paper is window-level (each 5-frame window scored
+independently), reported on a within-domain test set and a cross-domain
+set (FALEBaction). The numbers below are from the paper.
 
-Current: 94.6% (35/37)
-Target: >=90%
+#### Detection Rate (Recall)
 ```
+Recall = TP / (TP + FN)
 
-#### Miss Rate
-```
-Miss Rate = Missed Attacks / Total Attacks
- = FN / (TP + FN)
- = 1 - Detection Rate
-
-Current: 5.4% (2/37)
-Target: <=10%
+Within-domain @ selected threshold:  GRU 0.677   LSTM 0.672
+Cross-domain, push phase:            GRU 98.8%   LSTM 97.7%
+Cross-domain, preparatory phase:     GRU 77.4%   LSTM 76.6%
 ```
 
-#### False Positive Rate (Safe Videos)
+#### False Positive Rate
 ```
-FPR (Safe) = False Alarms on Safe Videos / Total Safe Videos
-
-Current: 0.0% (0/20)
-Target: <=10%
-```
-
-#### False Positive Rate (Pre-onset)
-```
-FPR (Pre-onset) = Detections Before Onset / Total Attacks
-
-Current: 5.4% (2/37)
-Target: <=10%
+Within-domain false-positive %:      GRU 0.66%   LSTM 0.68%
+Cross-domain tranquil-zone FP:       GRU 5.9%    LSTM 2.9%
 ```
 
 ### 7.2 Warning Metrics
 
-#### Pre-contact Warning Rate
+#### Early vs. late detection
 ```
-Pre-contact Rate = Attacks Detected Before Contact / Total Detected Attacks
- = Count(lead_time > 0) / TP
+The paper does not report a single mean lead time. Instead it classifies
+each cross-domain detection by the zone it fires in: a detection is "early"
+if it lands in the preparatory zone or before the contact frame in the push
+zone, and "late" at or after contact.
 
-Current: 62.9% (22/35)
-Target: >=60%
-```
-
-#### Lead Time
-```
-Lead Time = Attack Frame - First Detection Frame
-
-Positive lead time = Pre-contact warning (good)
-Zero lead time = On-time detection
-Negative lead time = Late detection (bad)
-
-Current:
- Mean: 2.4 frames (0.24s)
- Median: 3.0 frames (0.30s)
- Pre-contact only: 8.8 frames (0.88s)
-
-Target: >=0.2s mean lead time
+Cross-domain detection rates by zone:
+ Preparatory (pre-contact):  GRU 77.4%   LSTM 76.6%
+ Push (imminent contact):    GRU 98.8%   LSTM 97.7%
 ```
 
-### 7.3 Single THREAT Metrics
+### 7.3 Window-level Results
 
-The system reports a single binary THREAT state per frame. The reported metrics for the tuned threshold are:
+Window-level performance at the selected threshold (from the paper):
 
-```python
-# Warning rate at the tuned THREAT threshold
-warning_rate = Count(THREAT-tagged attacks) / Total Detected Attacks
+| Metric | GRU | LSTM | Transformer |
+|--------|-----|------|-------------|
+| Threshold | 0.65 | 0.60 | 0.65 |
+| Accuracy | 0.915 | 0.913 | 0.896 |
+| Precision | 0.972 | 0.971 | 0.996 |
+| Recall | 0.677 | 0.672 | 0.584 |
+| F1 | 0.798 | 0.794 | 0.736 |
+| False-positive % | 0.66% | 0.68% | 0.09% |
+| Average Precision | 0.906 | 0.903 | 0.891 |
+| ROC-AUC | 0.938 | 0.936 | 0.917 |
 
-# Mean lead time across all detected attacks
-lead_time_mean = Mean(attack_frame - first_warning_frame)
+The Transformer reaches the highest precision but its lower recall/F1 make it
+too conservative, so the recurrent models are preferred for deployment.
 
-# Pre-contact share among detected attacks
-precontact_rate = Count(lead_time > 0) / Count(detected attacks)
-```
-
-**Current Result (single THREAT threshold = 0.50)**:
-
-| Threshold | Warning Rate | Mean Lead Time | Pre-contact % |
-|-----------|--------------|----------------|---------------|
-| 0.50 | 100% (35/35) | 2.4 frames | 62.9% |
-
-### 7.4 Training Metrics
-
-#### F1 Score
+### 7.4 F1 Score
 ```
 F1 = 2 * Precision * Recall / (Precision + Recall)
 
-Precision = TP / (TP + FP) # Minimize false alarms
-Recall = TP / (TP + FN) # Maximize attack detection
+Precision = TP / (TP + FP)   # minimize false alarms
+Recall = TP / (TP + FN)      # maximize attack detection
 
-Current: 0.833 @ threshold=0.55 (validation set)
-```
-
-#### Confusion Matrix (Validation Set, threshold=0.55)
-```
- Predicted
- Safe Attack
-Actual Safe 1650 52 Precision = 1287/(1287+52) = 0.96
- Attack 13 1274 Recall = 1287/(13+1287) = 0.99
+Within-domain F1: GRU 0.798, LSTM 0.794 (see the table above).
+Cross-domain AUC-ROC: GRU 0.904, LSTM 0.931.
 ```
 
 ---
@@ -1700,83 +1658,37 @@ def split_by_windows(videos, val_fraction):
 
 ## 9. Performance Analysis
 
-### 9.1 Holdout Results
+### 9.1 Reported Results
 
-#### Overall Performance
+Window-level metrics are in section 7.3. Headline figures from the paper:
+
 ```
-Total Videos: 57
- Attacks: 37
- Safe: 20
+Within-domain (GRU / LSTM):
+ F1:        0.798 / 0.794
+ Precision: 0.972 / 0.971
+ Recall:    0.677 / 0.672
+ ROC-AUC:   0.938 / 0.936
 
-Detection Rate: 94.6% (35/37)
- Detected: 35
- Missed: 2
+Cross-domain (FALEBaction, GRU / LSTM):
+ Push-phase detection:        98.8% / 97.7%
+ Preparatory-phase detection: 77.4% / 76.6%
+ AUC-ROC:                     0.904 / 0.931
 
-False Positive Rate:
- Safe videos: 0.0% (0/20)
- Pre-onset: 5.4% (2/37)
-```
-
-#### THREAT Threshold Performance
-```
-Single THREAT threshold = 0.50:
- Warning Rate: 100% (35/35 detected)
- Pre-contact: 62.9% (22/35)
- Mean Lead Time: 2.4 frames (0.24s)
- Median Lead Time: 3.0 frames (0.30s)
- Pre-contact only: 8.8 frames (0.88s)
+Deployment: ~10 Hz end-to-end on Raspberry Pi 5 + Hailo-8.
 ```
 
 ### 9.2 Error Analysis
 
-#### Missed Attacks (2/37)
-```
-Video: h23.mp4
-Reason: Very subtle approach, no visible wind-up
-Max hazard: 0.41 (below threshold)
-Recommendation: Increase sensitivity, or accept as edge case
+Common failure modes observed during development:
 
-Video: h31.mp4
-Reason: Person mostly off-screen, bbox cropped
-Max hazard: 0.38
-Recommendation: Improve tracking for partial occlusion
-```
-
-#### False Positives - Pre-onset (2/37)
-```
-Video: h07.mp4
-Detection: Frame 89, Onset: Frame 95 (6 frames early)
-Reason: Early wind-up detected before labeled onset
-Note: May actually be correct (label ambiguity)
-
-Video: h12.mp4
-Detection: Frame 102, Onset: Frame 110 (8 frames early)
-Reason: Aggressive hand gesture misclassified
-Recommendation: More diverse safe gesture training data
-```
-
-#### False Positives - Safe Videos (0/20)
-```
-No false positives on safe videos.
-System successfully distinguishes normal behavior.
-```
-
-#### Late Detections (13/35 detected)
-```
-Attacks detected AFTER contact (negative lead time):
- Count: 13/35 (37%)
- Mean late: -3.2 frames (-0.32s)
-
-Potential causes:
- 1. Rapid attacks (< 0.5s from onset to contact)
- 2. Insufficient temporal context (5 frames may be too short)
- 3. Model focuses on high-confidence features (occurs near contact)
-
-Recommendations:
- 1. Increase window length to 8-10 frames
- 2. Add motion prediction module
- 3. Tune threshold lower (trade precision for recall)
-```
+- **Subtle approaches with no visible wind-up** - the hazard score stays
+  below threshold when there is little pose or flow signal before contact.
+- **Partial occlusion / cropped subjects** - when the person is mostly
+  off-screen the bbox and keypoints degrade, weakening the features.
+- **Label ambiguity near onset** - early wind-up can fire a frame or two
+  before the labeled onset; some of these are arguably correct.
+- **Rapid attacks** - when onset-to-contact is shorter than the 5-frame
+  window there is little pre-contact signal, pushing detection late.
 
 ### 9.3 Feature Importance Analysis
 
@@ -1792,25 +1704,15 @@ The current 59-feature / 118-dim model produces the Top 5 importances reported i
 - Wrist-to-torso distances (indices 19-20) - extension signal
 - Elbow angles (indices 23-24) - strike preparation posture
 
-### 9.4 Threshold Sensitivity
+### 9.4 Threshold Selection
 
-| Threshold | Precision | Recall | F1 | Pre-contact Rate | Mean Lead |
-|-----------|-----------|--------|-----|------------------|-----------|
-| 0.30 | 0.52 | 1.00 | 0.68 | 68.6% | 3.1 frames |
-| 0.40 | 0.61 | 0.97 | 0.75 | 66.7% | 2.9 frames |
-| 0.50 | 0.71 | 0.95 | 0.81 | 62.9% | 2.4 frames |
-| 0.55 | 0.76 | 0.95 | 0.84 | 60.0% | 2.1 frames |
-| 0.60 | 0.81 | 0.94 | 0.87 | 60.6% | 1.8 frames |
-| 0.70 | 0.89 | 0.89 | 0.89 | 54.8% | 0.9 frames |
-| 0.80 | 0.94 | 0.83 | 0.88 | 41.4% | -0.3 frames |
+The operating threshold is chosen per model by sweeping thresholds on the
+validation set and picking the highest-F1 point (ties broken by recall, then
+higher threshold). Lower thresholds raise recall and give earlier warnings at
+the cost of precision; higher thresholds do the reverse.
 
-**Trade-offs**:
-- **Lower threshold**: Higher recall, more pre-contact warnings, but lower precision
-- **Higher threshold**: Higher precision, but fewer pre-contact warnings
-- **Optimal (F1)**: 0.55-0.60 balances precision and recall
-- **Optimal (Lead time)**: 0.30-0.40 maximizes early warning
-
-**Recommendation**: Use 0.50 for deployment (good balance)
+Selected thresholds (from the paper): GRU 0.65, LSTM 0.60, Transformer 0.65.
+The value is stored in `outputs/checkpoints/meta.json` and read at inference.
 
 ---
 
@@ -1884,15 +1786,15 @@ The codebase supports both GRU and LSTM. They are not alternatives - both are ke
 
 **Progression**:
 1. Standard BCE: baseline
-2. Weighted BCE (α=0.57): improved recall
-3. Focal Loss (γ=2, α=0.57): better hard-example weighting
-4. Focal Loss (γ=2, α=0.75): **chosen** - best F1 + lead time balance
+2. Weighted BCE (alpha=0.57): improved recall
+3. Focal Loss (gamma=2, alpha=0.57): better hard-example weighting
+4. Focal Loss (gamma=2, alpha=0.75): **chosen** - best F1 + lead time balance
 
 **Rationale**:
 - Focuses on hard examples (subtle pre-contact behavior)
 - Down-weights easy examples (obvious attacks)
 - Better than static class weighting
-- Prioritizes recall (α=0.75)
+- Prioritizes recall (alpha=0.75)
 
 ### 10.6 Why Video-Level Split?
 
@@ -1930,7 +1832,7 @@ The codebase supports both GRU and LSTM. They are not alternatives - both are ke
 | 8 | crop_bottom | Bbox touches bottom edge | Always |
 | 9 | log_area | log(bbox area) | Always |
 | 10 | dlog_area_dt | d(log_area)/dt - filled by dataset/evaluate/infer | Frame >=1 |
-| 11 | d2log_area_dt2 | d²(log_area)/dt² - filled by dataset/evaluate/infer | Frame >=2 |
+| 11 | d2log_area_dt2 | d^2(log_area)/dt^2 - filled by dataset/evaluate/infer | Frame >=2 |
 | 12 | bbox_center_x | Normalised bbox centre x | Always |
 | 13 | bbox_center_y | Normalised bbox centre y | Always |
 | 14 | bbox_center_vx | Bbox centre x velocity | Frame >=1 |

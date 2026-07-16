@@ -99,11 +99,11 @@ Baseline F1: 0.8330
 
 Rank Feature F1 Drop Std Importance % Index
 --------------------------------------------------------------------------------
-1 * expansion_proximity +0.xxxxx ±0.xxxxxx 24.70% 57
-2 * torso_height_px +0.xxxxx ±0.xxxxxx 20.80% 48
-3 * divergence_torso +0.xxxxx ±0.xxxxxx 9.90% 34
-4 * divergence_lower +0.xxxxx ±0.xxxxxx 7.30% 38
-5 * acceleration_proximity +0.xxxxx ±0.xxxxxx 7.10% 58
+1 * expansion_proximity +0.xxxxx +/-0.xxxxxx 24.70% 57
+2 * torso_height_px +0.xxxxx +/-0.xxxxxx 20.80% 48
+3 * divergence_torso +0.xxxxx +/-0.xxxxxx 9.90% 34
+4 * divergence_lower +0.xxxxx +/-0.xxxxxx 7.30% 38
+5 * acceleration_proximity +0.xxxxx +/-0.xxxxxx 7.10% 58
 ...
 ```
 
