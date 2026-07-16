@@ -221,7 +221,7 @@ python -m src.train
 
 ### Training Output
 
-From `outputs/logs/train_20260406_212358.log`:
+Representative training output:
 
 ```
 ================================================================================
@@ -241,16 +241,16 @@ Dataset window balance:
  attack_videos=175 steps=3102 windows=2402 stride=1
  safe/attack window ratio = 3.45
 
-Stratified video-level split (class-balanced):
- Total videos: 335
- Train videos: 288 (safe=137, attack=151)
- Val videos: 47 (safe=24, attack=23)
+Stratified video-level split (class-balanced, 80/20):
+ Total videos: 336
+ Train videos: 269 (safe=129, attack=140)
+ Val videos: 67 (safe=32, attack=35)
 
 Train set balance:
- Total windows: 8940 (83.7% of all windows)
- Safe windows: 6898 (77.2%)
- Attack windows: 2042 (22.8%)
- Imbalance ratio: 3.38:1
+ Total windows: 8542 (80.0% of all windows)
+ Safe windows: 6620 (77.5%)
+ Attack windows: 1922 (22.5%)
+ Imbalance ratio: 3.44:1
 
 epoch 1/40 train=0.0326 val=0.0239 best_val=0.0239
 epoch 4/40 train=0.0158 val=0.0158 best_val=0.0158
@@ -263,7 +263,7 @@ epoch 40/40 train=0.0030 val=0.0195 best_val=0.0129
 Training completed at 2026-04-06 22:04:42
 Best validation loss: 0.0129
 Best F1: 0.921 Recall: 0.925 at threshold 0.65 (epoch 5)
-Model saved to: outputs/checkpoints/hazard_gru_20260406_212358.pt (selected by best F1)
+Model saved to: outputs/checkpoints/hazard_gru_YYYYMMDD_HHMMSS.pt (selected by best F1)
 ================================================================================
 
  Threshold comparison (val set, n_neg=1378):
@@ -313,7 +313,7 @@ python -m src.evaluate holdout/
 
 ### Evaluation Output
 
-From `outputs/logs/evaluate_20260406_221217.log`:
+Representative evaluation output:
 
 ```
 ================================================================================
