@@ -22,27 +22,31 @@ This system analyzes video streams to automatically detect assault behavior in r
 
 ## Features
 
-### Core Capabilities
-- **Real-time Detection**: Processes video at 10 FPS (downsampled from 30 FPS)
-- **Binary Threat Detection**: Single THREAT level with EMA smoothing and persistence gating
-- **Pose-based Features**: 59-dimensional feature vector from body keypoints and optical flow
-- **Optical Flow Analysis**: Camera-compensated radial/tangential motion decomposition
-- **Temporal Modeling**: GRU, LSTM, or Transformer network for sequence analysis
+### Core capabilities
 
-### Technical Features
-- **Focal Loss**: Handles class imbalance and emphasizes hard examples
-- **Video-level Train/Val Split**: Prevents data leakage
-- **Stratified Splitting**: Maintains class balance across varying video lengths
-- **Carry-forward Imputation**: Handles missing keypoints gracefully
-- **EMA Smoothing**: Reduces detection flicker
-- **Persistence Logic**: Reduces false alarms
+The system processes video at 10 FPS, downsampled from a 30 FPS source. Each
+frame yields a 59-dimensional feature vector built from body keypoints and
+optical flow, with camera motion removed by a background homography before the
+flow is decomposed into radial and tangential components. A recurrent network
+(GRU by default, with LSTM and Transformer variants available) scores a
+5-frame window, and the resulting hazard score is smoothed with an EMA and
+gated by a persistence counter to give a binary THREAT or NONE output.
+
+### Training and evaluation
+
+Training uses focal loss to handle the roughly 3.4:1 imbalance between safe and
+attack windows. The train/validation split is made at the video level and
+stratified by class, so windows from one clip cannot appear in both sets.
+Missing keypoints are carried forward from their last valid value during
+dataset construction, and a parallel validity mask is fed to the model so it
+can distinguish a real measurement from an imputed one.
 
 ## System Requirements
 
 ### Hardware
-- **Minimum**: CPU with 4+ cores, 8GB RAM
-- **Recommended**: NVIDIA GPU with 4GB+ VRAM, 16GB RAM
-- **Edge Deployment**: Raspberry Pi 5 + Hailo-8 AI HAT+ (M.2 NPU, ~10 Hz end-to-end inference)
+- Minimum: CPU with 4+ cores, 8GB RAM
+- Recommended: NVIDIA GPU with 4GB+ VRAM, 16GB RAM
+- Edge deployment: Raspberry Pi 5 + Hailo-8 AI HAT+ (M.2 NPU, ~10 Hz end-to-end inference)
 
 ### Software
 - Python 3.8+
@@ -144,7 +148,8 @@ data/
  └── ...
 ```
 
-**Important**: Training attack videos must be **trimmed to start from onset** (wind-up phase). Every frame should contain attack behavior.
+Training attack videos must be trimmed to start from the onset of the wind-up
+phase, so that every frame in the clip contains attack behavior.
 
 #### Holdout Data Structure
 ```
@@ -224,47 +229,50 @@ python -m src.train
 Representative training output:
 
 ```
-================================================================================
-FEATURE CONFIGURATION VERIFICATION
-================================================================================
-Model input dimension: 118 (features + masks)
-Number of raw features: 59
-Number of FEATURE_NAMES: 59
-[x] Feature names match actual features
-================================================================================
-
-Focal Loss: gamma=2.0, alpha=0.75
- (class imbalance ratio: 3.38:1)
+Training 2026-04-06 21:58:11  log -> outputs/logs/train_20260406_215811.log
+seed=42  cuda=deterministic
 
 Dataset window balance:
- safe_videos=161 steps=17117 windows=8276 stride=2
- attack_videos=175 steps=3102 windows=2402 stride=1
- safe/attack window ratio = 3.45
+  safe_videos=161 steps=17117 windows=8276 stride=2
+  attack_videos=175 steps=3102 windows=2402 stride=1
+  safe/attack window ratio = 3.45
 
-Stratified video-level split (class-balanced, 80/20):
- Total videos: 336
- Train videos: 269 (safe=129, attack=140)
- Val videos: 67 (safe=32, attack=35)
+Stratified video-level split (class-balanced):
+  Total videos: 336
+  Train videos: 269 (safe=129, attack=140)
+  Val videos: 67 (safe=32, attack=35)
 
 Train set balance:
- Total windows: 8542 (80.0% of all windows)
- Safe windows: 6620 (77.5%)
- Attack windows: 1922 (22.5%)
- Imbalance ratio: 3.44:1
+  Total windows: 8542 (80.0% of all windows)
+  Safe windows: 6620 (77.5%)
+  Attack windows: 1922 (22.5%)
+  Imbalance ratio: 3.44:1
+
+Val set balance:
+  Total windows: 2136 (20.0% of all windows)
+  Safe windows: 1378 (64.5%)
+  Attack windows: 758 (35.5%)
+
+Class imbalance ratio (safe/attack windows): 3.44
+
+Features: input_dim=118 (features+masks)  raw=59  FEATURE_NAMES=59
+Model: GRU  |  Parameters: 35,393
+Focal Loss: gamma=2.0, alpha=0.75
+  (class imbalance ratio: 3.44:1)
 
 epoch 1/40 train=0.0326 val=0.0239 best_val=0.0239
-epoch 4/40 train=0.0158 val=0.0158 best_val=0.0158
- * New best - F1=0.921 Rec=0.925 FP%=2.2% @ thresh=0.65 [best-F1] - Model saved!
-epoch 6/40 train=0.0116 val=0.0129 best_val=0.0129
+epoch 5/40 train=0.0158 val=0.0158 best_val=0.0158
+  * New best - F1=0.921 Rec=0.925 FP%=2.2% @ thresh=0.65 [best-F1] - Model saved!
+  Val @ thresh=0.65 [best-F1]: Acc=0.967 Prec=0.917 Rec=0.925 F1=0.921 FP%=2.2%
 ...
 epoch 40/40 train=0.0030 val=0.0195 best_val=0.0129
 
-================================================================================
-Training completed at 2026-04-06 22:04:42
+Training done 2026-04-06 22:04:42
 Best validation loss: 0.0129
-Best F1: 0.921 Recall: 0.925 at threshold 0.65 (epoch 5)
-Model saved to: outputs/checkpoints/hazard_gru_YYYYMMDD_HHMMSS.pt (selected by best F1)
-================================================================================
+Best F1: 0.921  Recall: 0.925  at threshold 0.65 (epoch 5)
+Model saved to: outputs/checkpoints/hazard_gru_20260406_215811.pt (selected by best F1)
+
+Generating PR and ROC curves...
 
  Threshold comparison (val set, n_neg=1378):
  thresh Prec Rec F1 FP% note
@@ -279,6 +287,8 @@ Model saved to: outputs/checkpoints/hazard_gru_YYYYMMDD_HHMMSS.pt (selected by b
  0.65 0.917 0.925 0.921 2.18% * selected (best F1)
  0.70 0.931 0.856 0.891 1.67%
 
+Computing feature importance...
+
 Top 5 Most Important Features:
  1. expansion_proximity: 24.7% (F1 drop: +0.2999)
  2. torso_height_px: 20.8% (F1 drop: +0.2526)
@@ -286,6 +296,10 @@ Top 5 Most Important Features:
  4. divergence_lower: 7.3% (F1 drop: +0.0886)
  5. acceleration_proximity: 7.1% (F1 drop: +0.0867)
 ```
+
+Note that the threshold and the saved checkpoint are both selected on the
+validation set, so the validation figures above are optimistic. Use the
+holdout results below when reporting performance.
 
 ### Output Files
 
@@ -389,11 +403,11 @@ live-assault-detection/
 │ ├── pose_detector.py # YOLOv8 pose detection - dual backend (Ultralytics PC / Hailo Pi)
 │ ├── features.py # Feature extraction (pose + flow, 59-dim)
 │ ├── flow.py # Optical flow computation
-│ ├── tracker.py # Simple bounding box tracker
+│ ├── tracker.py # Last-known bounding box holder
 │ ├── pose_utils.py # Pose keypoint utilities
 │ ├── feature_importance.py # Permutation importance evaluation
 │ ├── _plot.py # Shared PR/ROC plotting helpers (used by train.py, evaluate.py)
-│ ├── utils.py # Seed management utilities
+│ ├── utils.py # Seeding and stdout logging helpers
 │ ├── video_io.py # Video reading utilities
 │ └── copy_mp4s.py # Helper for collecting dataset clips
 ├── data/
@@ -424,7 +438,10 @@ live-assault-detection/
 
 ### Current Metrics (Holdout Set - 87 videos: 60 attack, 27 safe)
 
-Evaluated at threshold **0.65** (auto-tuned during training).
+Evaluated at threshold 0.65, tuned on the validation set during training.
+These figures come from `src/evaluate.py`, which thresholds the raw per-frame
+hazard score. The deployed path in `src/infer.py` additionally applies EMA
+smoothing and persistence gating, so its lead times are shorter.
 
 #### Attack Detection (60 attack videos)
 
@@ -449,9 +466,14 @@ Evaluated at threshold **0.65** (auto-tuned during training).
 | Mean Lead Time | 7.9 frames (0.26s) |
 | Median Lead Time | 5.0 frames (0.17s) |
 
-*Pre-contact detection = alert triggered before the labeled `attack_frame` (first physical contact).*
+Pre-contact detection means the alert fired before the labeled `attack_frame`,
+the first frame of physical contact. With 27 safe videos, a 0.0% false positive
+rate carries a 95% upper confidence bound near 13%.
 
 ### Validation Set Best Metrics (epoch 5, threshold=0.65)
+
+Both the checkpoint and the threshold were selected against this set, so these
+numbers describe model selection rather than held-out performance.
 
 | Accuracy | Precision | Recall | F1 Score |
 |----------|-----------|--------|----------|
@@ -464,22 +486,26 @@ Evaluated at threshold **0.65** (auto-tuned during training).
 | Input Features | 59 dimensions (+ 59 validity masks = 118-dim input) |
 | Window Length | 5 frames (0.5s) |
 | GRU Hidden Units | 64 |
-| Total Parameters | ~24K |
+| Total Parameters | 35,393 (GRU) |
 | Inference Speed | ~10 Hz end-to-end (Pi 5 + Hailo-8) |
 | Model Size | <1 MB |
 
 ## Documentation
 
-- **[DESIGN.md](docs/DESIGN.md)**: Comprehensive design specification
- - System architecture
- - Feature engineering details (59 features + 59 validity masks)
- - Model architecture
- - Training methodology
- - Algorithm details
+- [DESIGN.md](docs/DESIGN.md): system architecture, feature engineering, model
+ architecture, training methodology, and algorithm details.
+- [PIPELINE_DIAGRAM.md](docs/PIPELINE_DIAGRAM.md): end-to-end pipeline figure.
+- [FEATURE_IMPORTANCE_GUIDE.md](docs/FEATURE_IMPORTANCE_GUIDE.md): how the
+ permutation-importance tooling works and how to read its output.
+- [REPRODUCIBILITY.md](docs/REPRODUCIBILITY.md): seeding and sources of run-to-run
+ variation.
 
 ## Development
 
-### Running Tests
+### Running the pipeline
+
+The repository has no automated test suite. The commands below are the manual
+checks used during development.
 
 ```bash
 # Train model
@@ -501,13 +527,14 @@ python -m src.infer --eval-dir simulationvideo_dir/ --pi --simulate-live
 python -m src.infer 0 --picamera2 --pi
 ```
 
-### Adding New Features
+### Adding a feature
 
-1. Add feature computation in `src/features.py`
-2. Update feature dimension in returned tuple
-3. Retrain model (feature dimension will auto-adjust)
+1. Add the computation in `src/features.py` and extend the returned vector.
+2. Add a matching entry to `FEATURE_NAMES` in `src/config.py`, and update the
+   length assertions in both files.
+3. Retrain. The model input dimension is derived from the data.
 
-### Customizing Model
+### Changing the model
 
 1. Edit the relevant class in `src/model.py` (`HazardGRU`, `HazardLSTM`, or `HazardTransformer`)
 2. Update hyperparameters in `src/config.py`
@@ -549,7 +576,7 @@ python -m src.infer 0 --picamera2 --pi
 If you use this project in your research, please cite:
 
 ```bibtex
-@software{live_assault_detection_2025,
+@software{live_assault_detection_2026,
  author = {A.R.W.},
  title = {Real-Time Physical Threat Detection System},
  year = {2026},
@@ -559,7 +586,7 @@ If you use this project in your research, please cite:
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+MIT. A LICENSE file has not been added to the repository yet.
 
 ## Acknowledgments
 
@@ -569,8 +596,4 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## Contact
 
-For questions or issues, please open an issue on GitHub or contact [your.email@example.com](mailto:your.email@example.com).
-
----
-
-**Status**: Active Development | **Version**: 1.0.0 | **Last Updated**: April 2026
+For questions or issues, please open an issue on GitHub.

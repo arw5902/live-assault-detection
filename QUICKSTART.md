@@ -28,7 +28,7 @@ Or download manually from: https://github.com/ultralytics/assets/releases
 ### 3. Verify Installation
 
 ```bash
-python -c "from src.model import HazardGRU; print('[x] Installation successful!')"
+python -c "from src.model import HazardGRU; print('Installation successful')"
 ```
 
 ## Usage Examples

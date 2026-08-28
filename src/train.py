@@ -11,30 +11,13 @@ from .config import Config, FEATURE_NAMES
 from .dataset import build_dataset_per_video  # Video-level data for proper train/val split
 from .model import HazardGRU, HazardLSTM, HazardTransformer
 from .pose_detector import PoseDetector
-from .utils import set_seed, print_seed_info
+from .utils import set_seed, print_seed_info, TeeLogger
 from .feature_importance import compute_permutation_importance, print_importance_ranking, save_importance_results
-
-class Logger:
-    def __init__(self, log_file):
-        self.terminal = sys.stdout
-        self.log = open(log_file, 'w')
-
-    def write(self, message):
-        self.terminal.write(message)
-        self.log.write(message)
-        self.log.flush()
-
-    def flush(self):
-        self.terminal.flush()
-        self.log.flush()
-
-    def close(self):
-        self.log.close()
 
 class WindowDataset(Dataset):
     def __init__(self, X, M, y):
-        # Apply mask by concatenating mask bits to inputs (simple and effective):
-        # input = [features, mask] so model knows what is missing.
+        # input = [features, mask] so the model can tell a measured value
+        # from an imputed one.
         self.X = np.concatenate([X, M], axis=2).astype(np.float32)
         self.y = y.astype(np.float32)
 
@@ -46,7 +29,7 @@ def main(model_type: str = "gru"):
     os.makedirs("outputs/logs", exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     log_file = f"outputs/logs/train_{timestamp}.log"
-    logger = Logger(log_file)
+    logger = TeeLogger(log_file)
     sys.stdout = logger
 
     print(f"Training {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}  log -> {log_file}")
@@ -75,28 +58,23 @@ def main(model_type: str = "gru"):
     np.random.shuffle(attack_videos)
 
     def split_by_windows(video_list, val_fraction=0.20):
-        """Split videos to achieve target window fraction in validation set."""
+        """Assign whole videos to validation until the target window count is met.
+
+        The list is already shuffled, so taking a prefix gives a random split.
+        Splitting by video rather than by window keeps windows from the same
+        clip out of both sets.
+        """
         if len(video_list) == 0:
             return [], []
 
-        total_windows = sum(size for _, _, _, size in video_list)
-        target_val = int(val_fraction * total_windows)
+        target_val = int(val_fraction * sum(size for _, _, _, size in video_list))
 
         val_set = []
         train_set = []
         val_count = 0
 
         for xw, mw, yw, size in video_list:
-            if val_count < target_val and len(train_set) > 0:
-                overshoot_if_add = abs((val_count + size) - target_val)
-                undershoot_if_skip = abs(val_count - target_val)
-
-                if overshoot_if_add < undershoot_if_skip or len(val_set) == 0:
-                    val_set.append((xw, mw, yw))
-                    val_count += size
-                else:
-                    train_set.append((xw, mw, yw))
-            elif len(val_set) == 0 or val_count < target_val:
+            if not val_set or val_count < target_val:
                 val_set.append((xw, mw, yw))
                 val_count += size
             else:

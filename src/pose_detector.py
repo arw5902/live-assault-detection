@@ -38,9 +38,9 @@ def _decode_scale(box_raw, conf_raw, kps_raw, stride, conf_thresh):
     Returns (boxes, confs, kps) for anchors above conf_thresh,
     all coordinates in MODEL INPUT pixel space (e.g. 640x640).
 
-    NOTE: sigmoid is applied here to conf and keypoint visibility.
-    If the HEF already embeds sigmoid (depends on ONNX export options)
-    detections may be over-confident; remove _sigmoid() calls in that case.
+    Sigmoid is applied here to keypoint visibility only. If the HEF already
+    embeds sigmoid (this depends on the ONNX export options) detections will
+    be over-confident; remove the _sigmoid() call in that case.
     """
     H, W = box_raw.shape[:2]
     N    = H * W
@@ -224,11 +224,6 @@ class PoseDetector:
         self._backend = "ultralytics"
 
     def _infer_ultralytics(self, frame: np.ndarray):
-        # r = self._model(frame,
-        # imgsz=self.cfg.yolo_imgsz,    # to be consistent with size 416 HEF on the Pi
-        # conf=self.cfg.yolo_conf,
-        # iou=self.cfg.yolo_iou,
-        # verbose=False)[0]
         r = self._model(frame,
                         conf=self.cfg.yolo_conf,
                         iou=self.cfg.yolo_iou,

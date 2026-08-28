@@ -7,29 +7,17 @@ from .flow import (sample_points_in_box, sample_points_background, lk_flow,
                    estimate_background_homography, predict_flow_homography)
 
 class FeatureState:
-    def __init__(self, carry_steps=3):
+    """Carry-forward imputation: hold a feature at its last valid value."""
+
+    def __init__(self):
         self.prev = None
-        self.prev_valid = None
-        self.miss_run = None
-        self.carry_steps = carry_steps
 
     def init(self, dim):
         self.prev = np.zeros((dim,), dtype=np.float32)
-        self.prev_valid = np.zeros((dim,), dtype=np.float32)
-        self.miss_run = np.zeros((dim,), dtype=np.int32)
 
     def impute(self, x, valid):
-        # Always freeze at last known value when a feature is missing.
-        # miss_run tracks consecutive missing frames (informational; not used to change behaviour).
-        out = x.copy()
-        for i in range(len(out)):
-            if valid[i] > 0.5:
-                self.miss_run[i] = 0
-            else:
-                self.miss_run[i] += 1
-                out[i] = self.prev[i]
+        out = np.where(valid > 0.5, x, self.prev).astype(np.float32)
         self.prev = out
-        self.prev_valid = valid
         return out
 
 class TemporalDerivatives:
@@ -273,8 +261,6 @@ def build_features(
     prev_gray: Optional[np.ndarray],
     prev_bbox: Optional[list],
     det: Dict[str, Any],
-    track_age: int,
-    lost: int,
     cfg,
     dt: Optional[float] = None,
 ) -> Tuple[np.ndarray, np.ndarray, Dict[str, float], np.ndarray]:
@@ -679,7 +665,7 @@ def build_features(
     upper_lower_async = abs(trans_torso - trans_low)
 
     # Assemble feature vector (values) + validity mask for pose/flow parts
-    # Note: bbox features validity depends on cropping.
+    # bbox feature validity depends on whether the box touches a frame edge.
     bbox_valid = 0.0 if anyc else 1.0
 
     x = np.array([

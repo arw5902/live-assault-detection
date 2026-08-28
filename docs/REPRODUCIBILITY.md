@@ -20,22 +20,23 @@ You may observe different `max_hazard` values for the same video across differen
 The optical flow computation samples random points within and outside the person's bounding box:
 
 ```python
-# Sample 200 random points inside bbox
-xs = np.random.randint(x1, x2, size=(200,))
-ys = np.random.randint(y1, y2, size=(200,))
+# Sample cfg.max_flow_points (600) random points inside the bbox
+xs = np.random.randint(x1, x2, size=(max_points,))
+ys = np.random.randint(y1, y2, size=(max_points,))
 
-# Sample 200 random points in background
-idx = np.random.choice(len(xs), size=(200,), replace=False)
+# Sample the same number of points in the background
+idx = np.random.choice(len(xs), size=(max_points,), replace=False)
 ```
 
-**Impact**:
-- Different random points -> different optical flow vectors -> different flow features -> different predictions
-- This happens during **feature extraction**, not just training
-- Even with the same trained model, evaluation gives different results
+Different sample points give different flow vectors, which give different flow
+features and different predictions. This happens during feature extraction
+rather than during training, so evaluation results vary between runs even when
+the trained model is held fixed.
 
-**Why it matters**:
-- Optical flow and interaction features dominate importance - `expansion_proximity` (11.1%), `translation_lower` (9.2%), `translation_torso` (8.3%)
-- Small variations in flow sampling can significantly affect predictions
+Flow-derived features dominate the permutation-importance ranking
+(`expansion_proximity` at 24.7%, `divergence_torso` at 9.9%, `divergence_lower`
+at 7.3%), so variation in the sampled points propagates directly into the
+hazard score.
 
 ### 2. **PyTorch Non-Determinism**
 
@@ -83,7 +84,7 @@ def set_seed(seed: int = 42, deterministic: bool = True):
 
 ### Critical Timing
 
-**IMPORTANT**: Seeds must be set **BEFORE** any feature extraction or model operations:
+Seeds must be set before any feature extraction or model operation:
 
 ```python
 # CORRECT: Set seed FIRST
@@ -188,7 +189,7 @@ w1 = torch.load('outputs/checkpoints/model_run1.pt')
 w2 = torch.load('outputs/checkpoints/model_run2.pt')
 for key in w1.keys():
  assert torch.allclose(w1[key], w2[key], atol=1e-6), f'{key} differs'
-print('[x] Models are identical')
+print('Models are identical')
 "
 ```
 

@@ -166,8 +166,8 @@ def predict_flow_homography(
     warped_h = (H @ pts_h.T).T                                     # Nx3
     warped = warped_h[:, :2] / (warped_h[:, 2:3] + 1e-8)          # Nx2 de-homogenise
     flow = (warped - pts).astype(np.float32)
-    # Guard against residual NaN/inf from near-singular H (belt-and-suspenders
-    # with the condition check in estimate_background_homography).
+    # Guard against residual NaN/inf from a near-singular H; the condition
+    # check in estimate_background_homography covers most cases.
     if not np.all(np.isfinite(flow)):
         return np.zeros_like(flow)
     return flow

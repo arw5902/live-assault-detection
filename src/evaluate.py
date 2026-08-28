@@ -14,31 +14,14 @@ from .tracker import SingleTargetTracker
 from .features import build_features, add_interaction_features, compute_torso_height_frac, TemporalDerivatives
 from .dataset import extract_sequences, windowize
 from .feature_importance import compute_permutation_importance, print_importance_ranking, save_importance_results
-from .utils import set_seed, print_seed_info
-
-class Logger:
-    def __init__(self, log_file):
-        self.terminal = sys.stdout
-        self.log = open(log_file, 'w')
-
-    def write(self, message):
-        self.terminal.write(message)
-        self.log.write(message)
-        self.log.flush()
-
-    def flush(self):
-        self.terminal.flush()
-        self.log.flush()
-
-    def close(self):
-        self.log.close()
+from .utils import set_seed, print_seed_info, TeeLogger
 
 def evaluate_video(video_path, ground_truth, model, detector, cfg, device, threshold, debug=False, debug_before_frame=None):
     """
-    Evaluate single video.
+    Evaluate a single video.
 
     Returns:
-        dict with detection info including multi-level warning thresholds
+        dict with first_detection_frame, first_hazard, max_hazard, detections
     """
     # Seed RNG so each video gets identical point sampling regardless of
     # processing order.
@@ -79,10 +62,10 @@ def evaluate_video(video_path, ground_truth, model, detector, cfg, device, thres
             frame_idx += 1
             continue
 
-        bbox, track_age, lost = tracker.update(det["bbox"])
+        bbox = tracker.update(det["bbox"])
         det["bbox"] = bbox
 
-        x, m, dbg, prev_gray = build_features(frame, prev_gray, prev_bbox, det, track_age, lost, cfg)
+        x, m, dbg, prev_gray = build_features(frame, prev_gray, prev_bbox, det, cfg)
         prev_bbox = bbox
 
         # Compute temporal derivatives (dlog_area_dt, d2log_area_dt2, wrist
@@ -136,9 +119,6 @@ def evaluate_video(video_path, ground_truth, model, detector, cfg, device, thres
             'first_hazard': 0.0,
             'max_hazard': 0.0,
             'detections': [],
-            'first_precontact_frame': -1,
-            'first_high_frame': -1,
-            'first_critical_frame': -1
         }
 
     # Find first detection above primary threshold.
@@ -150,12 +130,6 @@ def evaluate_video(video_path, ground_truth, model, detector, cfg, device, thres
             first_hazard = hazard
             break
 
-    # Find first THREAT detection frame.
-    first_precontact_frame = -1
-    for frame, hazard in detections:
-        if first_precontact_frame == -1 and hazard >= threshold:
-            first_precontact_frame = frame
-
     max_hazard = max(h for _, h in detections)
 
     return {
@@ -163,7 +137,6 @@ def evaluate_video(video_path, ground_truth, model, detector, cfg, device, thres
         'first_hazard': first_hazard,
         'max_hazard': max_hazard,
         'detections': detections,
-        'first_precontact_frame': first_precontact_frame,
     }
 
 def main(holdout_dir: str, debug: bool = False):
@@ -171,12 +144,13 @@ def main(holdout_dir: str, debug: bool = False):
     os.makedirs("outputs/logs", exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     log_file = f"outputs/logs/evaluate_{timestamp}.log"
-    logger = Logger(log_file)
+    logger = TeeLogger(log_file)
     sys.stdout = logger
 
     print(f"Evaluation {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}  log -> {log_file}")
 
-    # Set random seed for reproducibility (CRITICAL: must be before feature extraction)
+    # Seed before feature extraction: the optical-flow point sampling in
+    # flow.py draws from the global NumPy RNG.
     set_seed(seed=42, deterministic=True)
     print_seed_info(seed=42, deterministic=True)
     print()

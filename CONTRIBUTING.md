@@ -86,7 +86,8 @@ We welcome the following types of contributions:
 2. **Features**: Add new functionality
 3. **Documentation**: Improve or add documentation
 4. **Performance**: Optimize existing code
-5. **Tests**: Add or improve test coverage
+5. Tests: add coverage, starting with `windowize`, `radial_tangential_stats`,
+ and the feature index invariants
 6. **Examples**: Add usage examples or tutorials
 
 ### Contribution Workflow
@@ -172,16 +173,21 @@ def focal_loss(pred: torch.Tensor, target: torch.Tensor, gamma: float = 2.0, alp
 
 ## Testing
 
-### Running Tests
+The repository does not have a test suite yet, and there is no `tests/`
+directory. The conventions below describe how to add one; new contributions
+that include tests are welcome.
 
 ```bash
+pip install pytest
+
 # Run all tests
 pytest
 
-# Run specific test file
+# Run a specific test file
 pytest tests/test_features.py
 
 # Run with coverage
+pip install pytest-cov
 pytest --cov=src tests/
 ```
 
@@ -214,8 +220,8 @@ def test_windowize_short_sequence():
 ### Pull Request Process
 
 1. **Update documentation** if needed
-2. **Add tests** for new features
-3. **Ensure all tests pass**
+2. Add tests for new behaviour where a test suite exists
+3. Verify that training and holdout evaluation still run end to end
 4. **Update CHANGELOG** (if exists)
 5. **Create pull request** with description
 
@@ -238,8 +244,7 @@ Describe testing performed
 ## Checklist
 - [ ] Code follows style guidelines
 - [ ] Documentation updated
-- [ ] Tests added/updated
-- [ ] All tests pass
+- [ ] Tests added/updated (if a test suite exists by then)
 - [ ] No breaking changes (or documented)
 ```
 

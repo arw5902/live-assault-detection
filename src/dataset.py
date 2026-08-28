@@ -38,14 +38,14 @@ def extract_sequences(video_path: str, label_mode: str, detector, cfg) -> Tuple[
             # skip - keeps windows contiguous over remaining timesteps
             continue
 
-        bbox, track_age, lost = tracker.update(det["bbox"])
+        bbox = tracker.update(det["bbox"])
         det["bbox"] = bbox
 
-        x, m, _, prev_gray = build_features(frame, prev_gray, prev_bbox, det, track_age, lost, cfg)
+        x, m, _, prev_gray = build_features(frame, prev_gray, prev_bbox, det, cfg)
         prev_bbox = bbox
 
         if fstate is None:
-            fstate = FeatureState(cfg.carry_forward_steps)
+            fstate = FeatureState()
             fstate.init(len(x))
 
         # Impute values only; keep mask bits to let the model learn missingness
@@ -253,20 +253,3 @@ def build_dataset_per_video(detector, cfg):
     )
 
     return video_data
-
-def build_dataset(detector, cfg) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """
-    Build dataset and concatenate all videos (for backward compatibility).
-    WARNING: This concatenates across videos. Use build_dataset_per_video for train/val splitting.
-    """
-    video_data = build_dataset_per_video(detector, cfg)
-
-    all_X = [xw for xw, _, _ in video_data]
-    all_M = [mw for _, mw, _ in video_data]
-    all_y = [yw for _, _, yw in video_data]
-
-    X = np.concatenate(all_X, axis=0)
-    M = np.concatenate(all_M, axis=0)
-    y = np.concatenate(all_y, axis=0)
-
-    return X, M, y

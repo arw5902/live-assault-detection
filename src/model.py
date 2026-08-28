@@ -14,7 +14,8 @@ class HazardGRU(nn.Module):
             batch_first=True
         )
 
-        # Apply dropout AFTER GRU (this works with 1 layer)
+        # Dropout is applied after the GRU; nn.GRU ignores its own dropout
+        # argument when num_layers=1.
         self.dropout = nn.Dropout(dropout)
 
         self.fc = nn.Linear(hidden, 1)

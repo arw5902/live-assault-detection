@@ -1,20 +1,18 @@
-from typing import Optional, Tuple
+from typing import Optional
+
 
 class SingleTargetTracker:
+    """Holds the most recent bounding box so a dropped detection reuses it.
+
+    There is no identity association: the detector already returns a single
+    person per frame (largest box).  Replace with SORT or ByteTrack if
+    multi-person tracking is added.
     """
-    Minimal tracker: maintain last bbox and a track_age.
-    Replace with SORT/ByteTrack if desired.
-    """
+
     def __init__(self):
         self.last_bbox = None
-        self.track_age = 0
-        self.lost = 0
 
-    def update(self, bbox) -> Tuple[Optional[list], int, int]:
-        if bbox is None:
-            self.lost += 1
-            return self.last_bbox, self.track_age, self.lost
-        self.last_bbox = bbox
-        self.track_age += 1
-        self.lost = 0
-        return self.last_bbox, self.track_age, self.lost
+    def update(self, bbox) -> Optional[list]:
+        if bbox is not None:
+            self.last_bbox = bbox
+        return self.last_bbox

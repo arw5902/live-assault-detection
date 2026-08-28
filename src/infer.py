@@ -17,7 +17,7 @@ from .tracker import SingleTargetTracker
 from .features import build_features, add_interaction_features, compute_torso_height_frac, TemporalDerivatives
 from .dataset import extract_sequences, windowize
 from .feature_importance import compute_permutation_importance, print_importance_ranking, save_importance_results
-from .utils import set_seed
+from .utils import set_seed, TeeLogger
 
 # BGR colours for each hazard level (binary: THREAT / NONE)
 LEVEL_COLOR = {
@@ -65,19 +65,6 @@ _KP_COLOR = [
 
 _KP_CONF_THRESH = 0.3   # minimum keypoint confidence to draw
 
-class TeeLogger:
-    def __init__(self, log_path):
-        self.terminal = sys.stdout
-        self.log = open(log_path, "a", buffering=1)
-
-    def write(self, message):
-        self.terminal.write(message)
-        self.log.write(message)
-
-    def flush(self):
-        self.terminal.flush()
-        self.log.flush()
-        
 def draw_skeleton(vis: np.ndarray, kps: np.ndarray) -> np.ndarray:
     """
     Draw COCO-17 keypoints and skeleton lines onto vis (in-place).
@@ -502,7 +489,7 @@ def run(video_source,
                 frame_idx += 1
                 continue
 
-            bbox, track_age, lost = tracker.update(det["bbox"])
+            bbox = tracker.update(det["bbox"])
             det["bbox"] = bbox
             kps = det["kps"]            # (17, 3) - carry forward for display
 
@@ -518,8 +505,7 @@ def run(video_source,
 
             _t1 = time.perf_counter()
             x, m, dbg, prev_gray = build_features(
-                frame, prev_gray, prev_bbox, det, track_age, lost, cfg,
-                dt=frame_dt)
+                frame, prev_gray, prev_bbox, det, cfg, dt=frame_dt)
             _t_flow = time.perf_counter() - _t1
             prev_bbox = bbox
             roi_torso = dbg.get("roi_torso")   # carry forward for display
@@ -770,12 +756,12 @@ def run_on_file(video_path, cfg, model, device, detector, early_thresh,
             frame_idx += 1
             continue
 
-        bbox, track_age, lost = tracker.update(det["bbox"])
+        bbox = tracker.update(det["bbox"])
         det["bbox"] = bbox
 
         _t1 = time.perf_counter()
         x, m, dbg, prev_gray = build_features(
-            frame, prev_gray, prev_bbox, det, track_age, lost, cfg)
+            frame, prev_gray, prev_bbox, det, cfg)
         _t_flow = time.perf_counter() - _t1
         prev_bbox = bbox
 
@@ -1593,7 +1579,7 @@ def evaluate_dir(eval_dir, verbose=False, debug=False, enable_pi=False,
     os.makedirs("outputs/logs", exist_ok=True)
     ts       = datetime.now().strftime("%Y%m%d_%H%M%S")
     log_path = os.path.join("outputs/logs", f"inference_{ts}.log")
-    sys.stdout = TeeLogger(log_path)
+    sys.stdout = TeeLogger(log_path, mode="a")
     sys.stderr = sys.stdout
     print(f"Logging to {log_path}")
 
@@ -2162,7 +2148,7 @@ if __name__ == "__main__":
     log_path = os.path.join("outputs/logs", f"infer_{ts}.log")
 
     # Redirect stdout and stderr
-    sys.stdout = TeeLogger(log_path)
+    sys.stdout = TeeLogger(log_path, mode="a")
     sys.stderr = sys.stdout
 
     print(f"Logging to {log_path}")

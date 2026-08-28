@@ -231,7 +231,7 @@ Alert State Output
 ┌────────────────────────────────────────────────────────┐
 │ src/tracker.py │
 │ Simple single-target tracker │
-│ - update(bbox) -> bbox, track_age, lost │
+│ - update(bbox) -> bbox │
 └────────────────────────────────────────────────────────┘
 
 ┌────────────────────────────────────────────────────────┐
@@ -1282,7 +1282,7 @@ for frame in video_stream:
  continue
 
  # 2. Tracking
- bbox, track_age, lost = tracker.update(det["bbox"])
+ bbox = tracker.update(det["bbox"])
 
  # 3. Feature extraction
  features, mask = extract_features(frame, det, bbox)
@@ -1489,46 +1489,47 @@ Cross-domain AUC-ROC: GRU 0.904, LSTM 0.931.
 
 ```python
 class FeatureState:
- def __init__(self, carry_steps=3):
- self.prev_value = None # Last valid value
- self.miss_run = None # Consecutive missing count
- self.carry_steps = carry_steps
+ def __init__(self):
+ self.prev = None # Last valid value per feature
 
- def impute(self, current_value, is_valid):
+ def init(self, dim):
+ self.prev = np.zeros((dim,), dtype=np.float32)
+
+ def impute(self, x, valid):
  """
- Freeze at last known value when feature is invalid.
- miss_run is tracked informationally but does not alter behaviour.
+ Freeze each feature at its last valid value when it is invalid.
 
  Returns:
- imputed_value: current if valid, else last known value (frozen)
+ the input value where valid, the last valid value elsewhere
  """
- if is_valid:
- self.prev_value = current_value
- self.miss_run = 0
- return current_value
- else:
- self.miss_run += 1
- return self.prev_value # Always freeze at last valid value
+ out = np.where(valid > 0.5, x, self.prev).astype(np.float32)
+ self.prev = out
+ return out
 ```
 
 **Example**:
 ```
 Frame: 1 2 3 4 5 6
-Raw value: 5.0 NaN NaN NaN 8.0 NaN
-Valid: Yes No No No Yes No
-Miss run: 0 1 2 3 0 1
-Imputed: 5.0 5.0 5.0 5.0 8.0 8.0
+Raw value: - 5.0 - - 8.0 -
+Valid: No Yes No No Yes No
+Imputed: 0.0 5.0 5.0 5.0 8.0 8.0
 
- valid cf1 cf2 cf3 valid cf1
+ init valid cf cf valid cf
 
-cf = carry forward (within carry_steps=3)
+cf = carry forward; there is no limit on the carry length
 ```
 
-**Why carry-forward?**
-- Preserves temporal coherence (smooth transitions)
-- Better than zero-filling or mean imputation
-- Mask bits inform model about imputation
-- Avoids synthetic data generation
+Carry-forward keeps the input sequence smooth across dropped keypoints, which
+matters because most of the feature vector feeds temporal derivatives. Zero
+filling would inject a spurious step change into every derivative on the frame
+a keypoint is lost and again on the frame it returns. The validity mask is
+passed to the model alongside the imputed value, so an imputed reading remains
+distinguishable from a measured one.
+
+Note that this imputation is applied in `dataset.py` during training only.
+`evaluate.py` and `infer.py` do not construct a `FeatureState`, so at inference
+an invalid feature reaches the model as its raw default rather than its last
+valid value.
 
 ### 8.2 Bounding Box Derivatives
 
@@ -1923,12 +1924,11 @@ class Config:
  # Temporal window
  window_len: int = 5 # Frames per window
  step_dt: float = 0.1 # Time step (s)
- safe_window_stride: int = 3 # Safe video stride
+ safe_window_stride: int = 2 # Safe video stride
  attack_window_stride: int = 1 # Attack video stride
 
  # Keypoint validity
  kp_conf_thresh: float = 0.35 # Minimum keypoint confidence
- carry_forward_steps: int = 3 # Max carry-forward frames
 
  # Cropping detection
  crop_eps: float = 0.03 # Edge margin (3%)

@@ -163,7 +163,21 @@ Based on the current 59-feature model with `window_len=5`:
 | 4 | divergence_lower | 7.3% | 38 | Optical Flow (Lower) |
 | 5 | acceleration_proximity | 7.1% | 58 | Interaction |
 
-**Key Insight:** The top 5 features account for ~69.8% of total importance - a much sharper concentration than the previous 51-feature model. The interaction feature `expansion_proximity` (proximity-gated optical-flow expansion) and the apparent body size `torso_height_px` jointly account for ~45%, confirming that **scale/proximity cues dominate the decision**: the same motion is only threatening when the person is large in frame and getting larger. Raw flow divergence in the torso and lower-body ROIs (ranks 3-4) provides the next-strongest evidence, and `acceleration_proximity` (rank 5) adds the proximity-gated wrist-acceleration signal.
+The top 5 features account for roughly 69.8% of total importance. The
+interaction feature `expansion_proximity` and the apparent body size
+`torso_height_px` together account for about 45%, which indicates that scale
+and proximity cues carry most of the decision: the same motion scores higher
+when the person is large in frame and getting larger. Flow divergence in the
+torso and lower-body ROIs follows at ranks 3 and 4, and `acceleration_proximity`
+at rank 5 contributes the proximity-weighted wrist-acceleration signal.
+
+Two caveats apply when reading these numbers. The permutation shuffles a
+feature channel while leaving its validity mask in place, which produces
+value and mask combinations the model never saw during training, so part of
+each F1 drop reflects that mismatch rather than genuine reliance. Several of
+these features are also algebraically related: `expansion_proximity` and
+`acceleration_proximity` are both products of a raw signal and a function of
+`torso_height_px`, so their individual scores are not independent.
 
 ## Computational Cost
 
@@ -280,4 +294,6 @@ This is expected because:
 
 ---
 
-**Note:** Feature importance is computed on the **validation set** using the **best F1 model checkpoint**. This ensures importance reflects generalization performance, not training memorization.
+Feature importance is computed on the validation set using the best-F1
+checkpoint, so it reflects behaviour on held-out windows rather than on the
+training data.
