@@ -135,6 +135,11 @@ python -m src.infer --eval-dir simulationvideo_dir/ --pi --simulate-live
 
 ### Data Preparation
 
+The video data is not publicly released. The recordings contain identifiable
+footage of participants performing simulated assaults, so the dataset is not
+distributed. The structures below describe the layout the code expects if you
+supply your own videos.
+
 #### Training Data Structure
 ```
 data/
@@ -443,6 +448,11 @@ These figures come from `src/evaluate.py`, which thresholds the raw per-frame
 hazard score. The deployed path in `src/infer.py` additionally applies EMA
 smoothing and persistence gating, so its lead times are shorter.
 
+These are not the numbers reported in the paper. The paper evaluates a
+97-video within-domain test set and a 47-video cross-domain subset of
+FALEBaction, and scores at the window level rather than per video, so its
+figures are not directly comparable to the ones below.
+
 #### Attack Detection (60 attack videos)
 
 | Metric | Value |
@@ -576,17 +586,17 @@ python -m src.infer 0 --picamera2 --pi
 If you use this project in your research, please cite:
 
 ```bibtex
-@software{live_assault_detection_2026,
- author = {A.R.W.},
- title = {Real-Time Physical Threat Detection System},
- year = {2026},
- url = {https://github.com/arw5902/live-assault-detection}
+@inproceedings{wang2026realtime,
+ author = {Wang, Anthony and Greer, Ross},
+ title = {Real-Time Physical Threat Detection Using Pose-Guided Optical Flow and Recurrent Classification for Egocentric Vision},
+ booktitle = {2026 IEEE World Forum on Public Safety Technology (WF-PST)},
+ year = {2026}
 }
 ```
 
 ## License
 
-MIT. A LICENSE file has not been added to the repository yet.
+MIT. See [LICENSE](LICENSE).
 
 ## Acknowledgments
 
